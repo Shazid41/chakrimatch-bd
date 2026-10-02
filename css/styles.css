@@ -470,3 +470,4 @@ p{margin:0}
 .m-muted{font-size:13px;color:var(--ink-3, #7a8494);line-height:1.6}
 .m-muted a{color:#0B63CE;font-weight:600}
 .footer-note a{color:#0B63CE}
+.cat-note{font-size:12.5px;line-height:1.6;color:var(--ink-2, #5b6472);background:#F7F9FC;border:1px dashed #D6DEE9;border-radius:8px;padding:8px 10px;margin-top:6px}

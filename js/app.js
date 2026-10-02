@@ -237,18 +237,24 @@ function renderCategories() {
     { title: "By Job Type", sub: "সেবার ধরন অনুযায়ী", key: "type", opts: JOB_TYPES, counter: (j, o) => j.type === o || j.edu === o },
     { title: "By Grade", sub: "গ্রেড অনুযায়ী", key: "grade", opts: GRADES, counter: (j, o) => j.grade === o }
   ];
-  $("#categoryGrid").innerHTML = blocks.map(b => `
+  $("#categoryGrid").innerHTML = blocks.map(b => {
+    const items = b.opts.map(o => {
+      const n = state.jobs.filter(j => b.counter(j, o)).length;
+      if (n === 0) return "";
+      if (b.key === "grade" && o === "Other") return "";   // "unpublished" is not a grade
+      return `<button class="cat-item" data-key="${b.key}" data-val="${esc(o)}">${esc(o)} <span class="cnt">${n}</span></button>`;
+    }).join("");
+    const note = (b.key === "grade" && items.indexOf("Grade") === -1 && !state.jobs.some(j => j.grade && j.grade !== "Other"))
+      ? `<div class="cat-note">Grade কেবল circular PDF-এ থাকে — summary data-তে নেই। প্রতিটা job-এর “📄 View Circular” খুলে দেখুন।</div>`
+      : "";
+    return `
     <div class="cat-block">
       <h3>${b.title}</h3>
       <div class="cat-sub">${b.sub}</div>
-      <div class="cat-items">
-        ${b.opts.map(o => {
-          const n = state.jobs.filter(j => b.counter(j, o)).length;
-          if (n === 0) return "";
-          return `<button class="cat-item" data-key="${b.key}" data-val="${esc(o)}">${esc(o)} <span class="cnt">${n}</span></button>`;
-        }).join("")}
-      </div>
-    </div>`).join("");
+      <div class="cat-items">${items}</div>
+      ${note}
+    </div>`;
+  }).join("");
 }
 
 /* ============================================================
