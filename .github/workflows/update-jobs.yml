@@ -1,0 +1,43 @@
+name: Refresh live circulars
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"   # every 6 hours
+  workflow_dispatch:          # manual "Run workflow" button
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-circulars
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # stdlib only — no pip install required
+      - name: Collect circulars from the Teletalk public API
+        run: python scraper/collect.py
+
+      - name: Commit the refreshed data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/jobs.json
+          if git diff --cached --quiet; then
+            echo "No change in data/jobs.json — nothing to commit."
+          else
+            git commit -m "chore: refresh live circulars $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi

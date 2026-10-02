@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ChakriMatch BD — Tell us your qualification, we find the govt jobs you are eligible for</title>
+<meta name="description" content="Personalized Bangladesh government job discovery. Build your profile, get AI eligibility matching, deadline alerts and official circular links." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Bengali:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<!-- ================= HEADER ================= -->
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a href="#home" class="logo">
+      <span class="logo-mark">🏢</span>
+      <span class="logo-text">Chakri<span class="logo-accent">Match</span><small>BD</small></span>
+    </a>
+
+    <nav class="nav" id="mainNav">
+      <a href="#profile" class="nav-link">My Profile</a>
+      <a href="#results" class="nav-link">Find Jobs</a>
+      <a href="#pipeline" class="nav-link">How It Works</a>
+      <a href="#categories" class="nav-link">Categories</a>
+      <a href="#alerts" class="nav-link">Alerts</a>
+    </nav>
+
+    <div class="topbar-actions">
+      <button class="bell" id="bellBtn" aria-label="Notifications">
+        🔔 <span class="bell-dot" id="bellDot" hidden>0</span>
+      </button>
+      <a href="#profile" class="btn btn-sm btn-primary">Find Jobs for Me</a>
+      <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
+    </div>
+  </div>
+
+  <!-- Notification dropdown -->
+  <div class="notif-panel" id="notifPanel" hidden>
+    <div class="notif-head">
+      <strong>Notifications</strong>
+      <button id="clearNotifs" class="link-btn">Clear all</button>
+    </div>
+    <ul class="notif-list" id="notifList"></ul>
+  </div>
+</header>
+
+<!-- ================= HERO ================= -->
+<section class="hero" id="home">
+  <div class="container hero-grid">
+    <div class="hero-copy">
+      <div class="hero-pill">🔎 Personalized Government Job Discovery — Bangladesh</div>
+      <h1>Find Jobs <span class="hl">for Me</span></h1>
+      <p class="hero-tagline">
+        Tell us your qualification. We find the government jobs you are eligible for —
+        <span class="bn">আপনার যোগ্যতা অনুযায়ী সরকারি চাকরি, নিজে থেকেই খুঁজে দিচ্ছি।</span>
+      </p>
+
+      <div class="hero-cta">
+        <a href="#profile" class="btn btn-lg btn-accent">🔎 Find Matching Government Jobs</a>
+        <a href="#pipeline" class="btn btn-lg btn-ghost-light">How automatic updates work →</a>
+      </div>
+
+      <div class="hero-stats">
+        <div class="stat"><b id="statSources">28</b><span>Govt sources monitored</span></div>
+        <div class="stat"><b id="statCirculars">0</b><span>Circulars in database</span></div>
+        <div class="stat"><b id="statNew">0</b><span>New this week</span></div>
+        <div class="stat"><b>24/7</b><span>Auto crawler interval</span></div>
+      </div>
+    </div>
+
+    <div class="hero-card">
+      <div class="hero-card-head">
+        <span class="live-dot"></span> Live eligibility preview
+      </div>
+      <div class="mini-profile">
+        <div class="avatar">CS</div>
+        <div>
+          <b>B.Sc. in CSE</b>
+          <span id="heroProfileLine">CGPA 3.50 · Age 24 · Dhaka</span>
+        </div>
+      </div>
+      <ul class="mini-jobs" id="heroJobs"></ul>
+      <a href="#results" class="hero-card-foot">See all matching jobs →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SMART SEARCH ================= -->
+<section class="search-section">
+  <div class="container">
+    <div class="smart-search">
+      <label for="smartQuery">🧠 Intelligent search — বাংলায় বা ইংরেজিতে লিখুন</label>
+      <div class="search-row">
+        <input id="smartQuery" type="text" placeholder="e.g. আমি CSE graduate, বয়স ২৪, ঢাকার বাইরে হলেও সমস্যা নেই, ৯-১৩ গ্রেডের চাকরি চাই" />
+        <button class="btn btn-primary" id="smartSearchBtn">Search</button>
+      </div>
+      <div class="search-hints">
+        <span class="hint-label">Try:</span>
+        <button class="chip chip-example" data-query="আমি CSE graduate, বয়স ২৪, ঢাকার বাইরে হলেও সমস্যা নেই, ৯-১৩ গ্রেডের চাকরি চাই">Bangla example</button>
+        <button class="chip chip-example" data-query="programmer jobs in grade 9-12, deadline next month">programmer + grade filter</button>
+        <button class="chip chip-example" data-query="ICT officer, female, age 26">ICT officer · female · 26</button>
+      </div>
+      <div class="parsed-filters" id="parsedFilters" hidden></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= PROFILE + RESULTS ================= -->
+<main>
+<section class="profile-section" id="profile">
+  <div class="container">
+    <div class="section-head">
+      <h2>1️⃣ Your Profile</h2>
+      <p>একবার পূরণ করুন — প্রতিটি নতুন circular-এ সাথে সাথেই eligibility মিলিয়ে দেখাবে।</p>
+    </div>
+
+    <div class="profile-layout">
+      <!-- FORM -->
+      <form class="card profile-form" id="profileForm" autocomplete="off">
+        <div class="form-grid">
+          <div class="field">
+            <label for="fName">Full name</label>
+            <input id="fName" name="name" type="text" placeholder="e.g. Rafiul Islam" />
+          </div>
+
+          <div class="field">
+            <label for="fEducation">Education level</label>
+            <select id="fEducation" name="education">
+              <option>Bachelor's</option>
+              <option>Master's</option>
+              <option>Honours</option>
+              <option>Diploma</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="fDegree">Degree / Title</label>
+            <input id="fDegree" name="degree" type="text" placeholder="e.g. B.Sc. in CSE" />
+          </div>
+
+          <div class="field">
+            <label for="fMajor">Major / Department</label>
+            <select id="fMajor" name="major"></select>
+          </div>
+
+          <div class="field">
+            <label for="fCgpa">CGPA <small>(out of 4.00)</small></label>
+            <input id="fCgpa" name="cgpa" type="number" step="0.01" min="0" max="4" placeholder="3.50" />
+          </div>
+
+          <div class="field">
+            <label for="fAge">Age</label>
+            <input id="fAge" name="age" type="number" min="15" max="60" placeholder="24" />
+          </div>
+
+          <div class="field">
+            <label for="fGender">Gender</label>
+            <select id="fGender" name="gender">
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="fLocation">Location (District / Division)</label>
+            <input id="fLocation" name="location" type="text" placeholder="e.g. Dhaka" />
+          </div>
+
+          <div class="field">
+            <label for="fExperience">Experience (years)</label>
+            <input id="fExperience" name="experience" type="number" min="0" max="30" step="0.5" placeholder="0" />
+          </div>
+
+          <div class="field">
+            <label for="fRelocate">Willing to work outside your location?</label>
+            <select id="fRelocate" name="relocate">
+              <option value="yes">Yes — anywhere in Bangladesh</option>
+              <option value="no">No — only my location</option>
+            </select>
+          </div>
+
+          <div class="field field-span-2">
+            <label>Skills <small>(Enter চাপুন যোগ করতে)</small></label>
+            <div class="skill-input-wrap">
+              <div class="skills-box" id="skillsBox"></div>
+              <input id="skillInput" type="text" placeholder="Java, Python, Networking, CCNA…" />
+            </div>
+          </div>
+
+          <div class="field field-span-2">
+            <label>Government job preference — Job types</label>
+            <div class="check-grid" id="jobTypeChecks"></div>
+          </div>
+
+          <div class="field field-span-2">
+            <label>Preferred grades</label>
+            <div class="check-grid" id="gradeChecks"></div>
+          </div>
+
+          <div class="field field-span-2 switch-row">
+            <label class="switch">
+              <input type="checkbox" id="fOnlyCse" checked />
+              <span class="slider"></span>
+            </label>
+            <div>
+              <b>শুধু CSE/ICT-related সরকারি চাকরি চাই</b>
+              <small>Only show jobs matched to my department (CSE/ICT/IT/SWE). Turn off to see all graduate-level jobs.</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="resetProfile">Reset</button>
+          <button type="submit" class="btn btn-accent btn-lg" id="findJobsBtn">🔎 Find Matching Government Jobs</button>
+        </div>
+      </form>
+
+      <!-- SUMMARY -->
+      <aside class="profile-side">
+        <div class="card score-card">
+          <div class="score-ring" id="scoreRing">
+            <svg viewBox="0 0 120 120">
+              <circle class="ring-bg" cx="60" cy="60" r="52" />
+              <circle class="ring-fg" id="ringFg" cx="60" cy="60" r="52" />
+            </svg>
+            <div class="ring-text"><b id="eligibleCount">0</b><span>eligible</span></div>
+          </div>
+          <div class="score-lines">
+            <div><span class="dot dot-green"></span><b id="cntEligible">0</b> Eligible</div>
+            <div><span class="dot dot-amber"></span><b id="cntCheck">0</b> Check requirements</div>
+            <div><span class="dot dot-red"></span><b id="cntNot">0</b> Not eligible</div>
+          </div>
+        </div>
+
+        <div class="card next-deadline">
+          <h4>⏰ Closest deadline</h4>
+          <div id="closestDeadline" class="closest">—</div>
+          <a href="#results" class="link-btn">Go to results →</a>
+        </div>
+
+        <div class="card tip-card">
+          <h4>💡 কেন এটা দরকার?</h4>
+          <p>প্রতিদিন নতুন circular আসে, কিন্তু qualification match করে দেখার সময় থাকে না। ChakriMatch আপনার profile-এর সাথে প্রতিটি circular-এর <b>degree, age limit, CGPA, experience</b> মিলিয়ে eligibility বলে দেয় — <i>এবং কেন eligible, তাও দেখায়।</i></p>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ================= RESULTS ================= -->
+<section class="results-section" id="results">
+  <div class="container">
+    <div class="section-head row">
+      <div>
+        <h2>2️⃣ Matching Government Jobs</h2>
+        <p>আপনার qualification-এর সাথে মিলিয়ে সাজানো — deadline অনুযায়ী।</p>
+      </div>
+      <div class="scan-box">
+        <div class="scan-line"><span class="live-dot"></span> <span id="lastScan">Last scan: just now</span></div>
+        <div class="scan-line scan-sub"><span id="dataSource">Fetching live circulars…</span></div>
+        <button class="btn btn-sm btn-outline" id="scanNowBtn">🔄 Check for new circulars</button>
+      </div>
+    </div>
+
+    <div class="results-layout">
+      <!-- FILTER SIDEBAR -->
+      <aside class="card filters" id="filters">
+        <div class="filter-head">
+          <h3>Filters</h3>
+          <button class="link-btn" id="clearFilters">Clear</button>
+        </div>
+
+        <div class="filter-group" id="eduFilter"><h4>By Education</h4><div class="filter-list"></div></div>
+        <div class="filter-group" id="typeFilter"><h4>By Job Type</h4><div class="filter-list"></div></div>
+        <div class="filter-group" id="gradeFilter"><h4>By Grade</h4><div class="filter-list"></div></div>
+      </aside>
+
+      <!-- LIST -->
+      <div class="results-main">
+        <div class="results-toolbar">
+          <div class="status-chips" id="statusChips">
+            <button class="chip active" data-status="all">All <b id="nAll">0</b></button>
+            <button class="chip chip-ok" data-status="eligible">✅ Eligible <b id="nEligible">0</b></button>
+            <button class="chip chip-warn" data-status="check">⚠️ Check <b id="nCheck">0</b></button>
+            <button class="chip chip-bad" data-status="not">❌ Not eligible <b id="nNot">0</b></button>
+            <button class="chip" data-status="saved">🔖 Saved <b id="nSaved">0</b></button>
+          </div>
+          <select id="sortSelect" class="sort-select">
+            <option value="deadline">Sort: Deadline soonest</option>
+            <option value="match">Sort: Best match</option>
+            <option value="new">Sort: Newest first</option>
+          </select>
+        </div>
+
+        <div class="job-list-head">
+          <span>Job / Organization</span><span>Deadline</span><span>Your Match</span><span>Actions</span>
+        </div>
+
+        <div id="jobList" class="job-list"></div>
+
+        <div id="emptyState" class="empty" hidden>
+          <div class="empty-icon">🔍</div>
+          <h3>No jobs match these filters</h3>
+          <p>Filters সরিয়ে দেখুন, অথবা profile আপডেট করুন। নতুন circular এলে সাথে সাথেই এখানে দেখাবে।</p>
+          <button class="btn btn-primary" id="emptyReset">Show all jobs</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= PIPELINE ================= -->
+<section class="pipeline-section" id="pipeline">
+  <div class="container">
+    <div class="section-head center">
+      <h2>3️⃣ Automatic Update System</h2>
+      <p>সরকারি website-এ নতুন circular এলে system নিজে থেকেই সংগ্রহ করে, বিশ্লেষণ করে আপনার profile-এর সাথে মিলিয়ে দেখায়।</p>
+    </div>
+
+    <div class="pipeline" id="pipelineSteps">
+      <div class="pipe-step" data-step="0"><span class="pipe-icon">🌐</span><b>Government Websites</b><small id="pipeSources">28 sources</small></div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step" data-step="1"><span class="pipe-icon">🕷️</span><b>Web Crawler</b><small>interval scan</small></div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step" data-step="2"><span class="pipe-icon">📡</span><b>Circular Detection</b><small>new notice?</small></div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step" data-step="3"><span class="pipe-icon">📄</span><b>PDF / Notice</b><small>collect</small></div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step" data-step="4"><span class="pipe-icon">🧠</span><b>AI Document Parser</b><small>extract fields</small></div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step" data-step="5"><span class="pipe-icon">🧾</span><b>Job Information</b><small>title, age, salary…</small></div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step" data-step="6"><span class="pipe-icon">⚖️</span><b>Eligibility Analysis</b><small>vs your profile</small></div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step" data-step="7"><span class="pipe-icon">🗄️</span><b>Database</b></div>
+      <span class="pipe-arrow">→</span>
+      <div class="pipe-step" data-step="8"><span class="pipe-icon">🔔</span><b>Your Website</b><small>+ alert</small></div>
+    </div>
+
+    <div class="pipeline-controls">
+      <button class="btn btn-accent" id="runPipelineBtn">▶ Run crawler now</button>
+      <span class="next-scan">Next auto-scan in <b id="nextScan">5:00</b></span>
+    </div>
+    <p class="source-note" id="sourceLine">Loading data source…</p>
+
+    <div class="source-grid">
+      <div class="card source-card"><h4>🏛️ Ministries</h4><p>ICT Division, Education, Health, Public Administration…</p><span class="src-count">7 sources</span></div>
+      <div class="card source-card"><h4>🗂️ Departments & Directorates</h4><p>DSHE, DTE, BBS, LGED, Registration…</p><span class="src-count">6 sources</span></div>
+      <div class="card source-card"><h4>🏦 Government Banks</h4><p>Bangladesh Bank, Sonali, Janata, Rupali, Krishi…</p><span class="src-count">5 sources</span></div>
+      <div class="card source-card"><h4>Autonomous Organizations</h4><p>BTRC, EC, BCC, BREB, WASA, Railways…</p><span class="src-count">6 sources</span></div>
+      <div class="card source-card"><h4>🎓 Universities & Colleges</h4><p>Public universities, govt colleges, polytechnics…</p><span class="src-count">4 sources</span></div>
+      <div class="card source-card"><h4>🧪 Technical & Others</h4><p>BCS circulars, non-cadre, judicial service…</p><span class="src-count">…</span></div>
+    </div>
+
+    <div class="extract-card card">
+      <h4>Fields pulled automatically from every circular</h4>
+      <div class="extract-tags">
+        <span>Organization</span><span>Job title</span><span>Vacancies</span><span>Age limit</span>
+        <span>Location</span><span>Application start date</span><span>Deadline</span><span>Gender</span>
+        <span>Circular PDF</span><span>Application URL</span><span>Organisation website</span><span>Circular no.</span>
+        <span class="tag-inferred">Educational qualification *</span><span class="tag-inferred">Grade *</span>
+        <span class="tag-inferred">Salary *</span><span class="tag-inferred">Required documents *</span>
+      </div>
+      <p class="safe-note">* The source summary does not publish these four fields — qualification is <b>inferred from the post title</b>, the rest must be read in the circular PDF. Always confirm there before applying.</p>
+      <p class="safe-note">🛡️ আমরা application submit করি না — “Apply Now” সরাসরি <b>official application website-এ</b> নিয়ে যায়। নিরাপদ ও নির্ভরযোগ্য।</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CATEGORIES ================= -->
+<section class="categories-section" id="categories">
+  <div class="container">
+    <div class="section-head">
+      <h2>4️⃣ Browse by Category</h2>
+      <p>Education, job type ও grade অনুযায়ী সাজানো — এক ক্লিকে filter লাগুন।</p>
+    </div>
+    <div id="categoryGrid" class="category-grid"></div>
+  </div>
+</section>
+
+<!-- ================= ALERTS ================= -->
+<section class="alerts-section" id="alerts">
+  <div class="container alerts-layout">
+    <div class="card alert-config">
+      <h2>🔔 Notification System</h2>
+      <p>নতুন circular publish হলে system বুঝবে এটা আপনার জন্য relevant কিনা। relevant হলেই alert।</p>
+
+      <div class="alert-lines">
+        <label class="switch-line"><input type="checkbox" id="optSite" checked /><span>Website notification (in-app 🔔)</span></label>
+        <label class="switch-line"><input type="checkbox" id="optEmail" /><span>Email alert — <input type="email" id="emailInput" placeholder="you@example.com" class="inline-input" /></span></label>
+        <label class="switch-line"><input type="checkbox" id="optTelegram" /><span>Telegram alert — <input type="text" id="tgInput" placeholder="@username" class="inline-input" /></span></label>
+      </div>
+
+      <div class="alert-sample" id="alertSample">
+        <div class="alert-sample-head">🔔 New Job Alert</div>
+        <p>A new government job matching your <b id="alertMajor">CSE</b> background has been published.</p>
+        <div class="alert-sample-job" id="alertSampleJob">—</div>
+      </div>
+
+      <button class="btn btn-primary" id="testAlertBtn">Send me a test alert</button>
+    </div>
+
+    <div class="card alert-explain">
+      <h3>How matching works</h3>
+      <div class="match-example">
+        <div class="match-line ok">Circular: <i>“Bachelor degree in Computer Science and Engineering or equivalent”</i></div>
+        <div class="match-line ok">User = CSE Graduate → <b>✅ Match</b></div>
+      </div>
+      <div class="match-example">
+        <div class="match-line bad">Circular: <i>“Bachelor's degree in Civil Engineering”</i></div>
+        <div class="match-line bad">CSE → Civil Engineering required → <b>❌ Not Eligible</b></div>
+      </div>
+      <div class="match-example">
+        <div class="match-line warn">Circular: <i>“CSE / ICT / EEE / ECE / Mathematics / Statistics”</i></div>
+        <div class="match-line warn">AI analyses the qualification text against your profile → ✅ with explanation</div>
+      </div>
+      <div class="why-box">
+        <b>“Why am I eligible?”</b>
+        <ul>
+          <li>Required degree: CSE → Your degree: CSE ✅</li>
+          <li>Age requirement: 18–32 → Your age: 24 ✅</li>
+          <li>Experience: Not required ✅</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ================= FOOTER ================= -->
+<footer class="footer">
+  <div class="container footer-grid">
+    <div>
+      <div class="logo"><span class="logo-mark">🏢</span><span class="logo-text">Chakri<span class="logo-accent">Match</span><small>BD</small></span></div>
+      <p class="footer-tag">“Tell us your qualification. We find the government jobs you are eligible for.”</p>
+    </div>
+    <div>
+      <h5>Product</h5>
+      <a href="#profile">Build profile</a><a href="#results">Find jobs</a><a href="#categories">Categories</a><a href="#alerts">Alerts</a>
+    </div>
+    <div>
+      <h5>Sources</h5>
+      <a href="#pipeline">Crawler pipeline</a><a href="#pipeline">Government websites</a><a href="#pipeline">Extraction fields</a>
+    </div>
+    <div>
+      <h5>Notes</h5>
+      <p class="footer-note">Job discovery + eligibility matching only. Application always happens on the official website. Circular links open the official source.</p>
+      <p class="footer-note">Data: <a href="https://alljobs.teletalk.com.bd/jobs/government" target="_blank" rel="noopener">Alljobs by Teletalk</a> · <a href="https://github.com/Shazid41/chakrimatch-bd" target="_blank" rel="noopener">Source code</a></p>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="container">
+      🟢 Live circulars from the Teletalk public API, rebuilt automatically every 6 hours — educational qualification is <b>inferred from the post title</b>, so always confirm it in the official circular PDF.
+    </div>
+  </div>
+</footer>
+
+<!-- ================= MODAL ================= -->
+<div class="modal-backdrop" id="modalBackdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <button class="modal-close" id="modalClose" aria-label="Close">✕</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<!-- ================= TOASTS ================= -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="js/jobs.js"></script>
+<script src="js/matcher.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
