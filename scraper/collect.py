@@ -377,6 +377,23 @@ def main() -> int:
     # newest deadlines first is not useful — keep soonest deadline on top
     jobs.sort(key=lambda x: (x.get("deadline") or "9999-12-31"))
 
+    # Rewrite the file only when the circulars themselves changed, otherwise the
+    # scheduled workflow would commit a new timestamp (and view counts) every run.
+    signature = [
+        [j["id"], j["title"], j["deadline"], j["vacancies"], j["applyUrl"], j["requiredDegrees"]]
+        for j in jobs
+    ]
+    try:
+        prev = json.loads(OUT.read_text(encoding="utf-8"))
+    except Exception:                          # noqa: BLE001 - first run / no file yet
+        prev = None
+
+    if prev and prev.get("_signature") == signature and prev.get("jobs"):
+        LOG(f"no change in the {len(jobs)} live circulars — snapshot left untouched")
+        print(json.dumps({"count": len(prev["jobs"]), "failed": failed,
+                          "changed": False, "out": str(OUT)}))
+        return 0
+
     payload = {
         "generatedAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
         "source": "alljobs.teletalk.com.bd (Alljobs by Teletalk — public API)",
@@ -388,11 +405,13 @@ def main() -> int:
             "from the post title and must be verified in the official circular PDF."
         ),
         "jobs": jobs,
+        "_signature": signature,
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
     LOG(f"wrote {OUT} ({len(jobs)} jobs, {failed} failures)")
-    print(json.dumps({"count": len(jobs), "failed": failed, "out": str(OUT)}))
+    print(json.dumps({"count": len(jobs), "failed": failed,
+                      "changed": True, "out": str(OUT)}))
     return 0
 
 
