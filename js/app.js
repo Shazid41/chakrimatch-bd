@@ -154,10 +154,13 @@ function paintCrawlerStatus(runs, stale) {
 
   if (!runs || !runs.length) {
     dot.className = "cs-dot unknown";
-    stateEl.textContent = "unknown";
-    body.innerHTML = `Live status is unreachable right now — open the ` +
-      `<a href="${GH_ACTIONS_URL}" target="_blank" rel="noopener">Actions tab</a> ` +
-      `to see the crawl history yourself.`;
+    stateEl.textContent = stale ? "cached" : "unknown";
+    body.innerHTML = `Live status could not be read right now ` +
+      `${stale ? "(no saved copy either)" : "(GitHub may be rate-limiting this page)"}. ` +
+      `The workflow badge below is served straight from GitHub: ` +
+      `<a href="${GH_ACTIONS_URL}" target="_blank" rel="noopener">Actions tab ↗</a>` +
+      `<img class="cs-badge" alt="Refresh live circulars workflow status" ` +
+      `src="https://github.com/Shazid41/chakrimatch-bd/actions/workflows/update-jobs.yml/badge.svg">`;
     return;
   }
 

@@ -488,5 +488,6 @@ p{margin:0}
 .cs-body a:hover,.cs-links a:hover{text-decoration:underline}
 .cs-sub{display:block;margin-top:5px;font-size:12.5px;color:var(--ink-3, #7a8494)}
 .cs-links{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;padding-top:9px;border-top:1px dashed #E4EAF2;font-size:12.5px}
+.cs-badge{display:inline-block;height:18px;vertical-align:-4px;margin-left:8px}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 @media (max-width:560px){.cs-links{gap:10px}}
