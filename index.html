@@ -356,6 +356,21 @@
     </div>
     <p class="source-note" id="sourceLine">Loading data source…</p>
 
+    <!-- Crawler health — live from the public GitHub Actions API -->
+    <div class="crawler-status card" id="crawlerStatus">
+      <div class="cs-head">
+        <span class="cs-title">⚙️ Crawler status</span>
+        <span class="cs-dot" id="csDot" aria-hidden="true"></span>
+        <span class="cs-state" id="csState">checking…</span>
+      </div>
+      <div class="cs-body" id="csBody">Checking the last crawl…</div>
+      <div class="cs-links">
+        <a href="https://github.com/Shazid41/chakrimatch-bd/actions" target="_blank" rel="noopener">Run history ↗</a>
+        <a href="https://github.com/Shazid41/chakrimatch-bd/actions/workflows/update-jobs.yml" target="_blank" rel="noopener">Latest logs ↗</a>
+        <a href="https://github.com/Shazid41/chakrimatch-bd/commits/main/" target="_blank" rel="noopener">Data commits ↗</a>
+      </div>
+    </div>
+
     <div class="source-grid">
       <div class="card source-card"><h4>🏛️ Ministries</h4><p>ICT Division, Education, Health, Public Administration…</p><span class="src-count">7 sources</span></div>
       <div class="card source-card"><h4>🗂️ Departments & Directorates</h4><p>DSHE, DTE, BBS, LGED, Registration…</p><span class="src-count">6 sources</span></div>

@@ -1,5 +1,8 @@
 # ChakriMatch BD 🇧🇩
 
+[![Refresh live circulars](https://github.com/Shazid41/chakrimatch-bd/actions/workflows/update-jobs.yml/badge.svg)](https://github.com/Shazid41/chakrimatch-bd/actions/workflows/update-jobs.yml)
+[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-live-brightgreen)](https://shazid41.github.io/chakrimatch-bd/)
+
 **Tell us your qualification — we find the government jobs you are eligible for.**
 
 A static, no-build job discovery site for Bangladesh government circulars. Fill in your
@@ -89,6 +92,30 @@ python scraper/collect.py --limit 20  # quick sample run
 `.github/workflows/update-jobs.yml` runs the crawler **every 6 hours** (and on demand from
 the *Actions* tab). If `data/jobs.json` changed it is committed back to the repository, and
 GitHub Pages redeploys — so the live site keeps itself current with no server to maintain.
+
+## How do I know the crawler is working?
+
+Four places to check — none of them need a login:
+
+1. **On the site itself** — the ⚙️ *Crawler status* panel under *How It Works* reads
+   GitHub's public Actions API live: when the last crawl ran, whether it succeeded, and a
+   link straight to that run's log. Next to the results the 🟢 line shows how many
+   organisations and circulars are loaded and when the data last changed.
+2. **Actions tab** — <https://github.com/Shazid41/chakrimatch-bd/actions> lists every run.
+   `schedule` = it fired on its own (cron), `workflow_dispatch` = someone clicked *Run
+   workflow*. Green ✅ = fine, red ❌ = failed (GitHub also e-mails you about failures).
+3. **Commit history** — <https://github.com/Shazid41/chakrimatch-bd/commits/main/> shows
+   `github-actions[bot]` committing `data/jobs.json` **only when the circulars really
+   changed**. So *no new commit* means “Teletalk published nothing new”, **not** “the
+   crawler is broken” — check the Actions tab for green runs instead.
+4. **Badge at the top of this README** — turns red if the workflow starts failing.
+
+Run the health check yourself at any time:
+
+```bash
+python scraper/collect.py      # prints "changed": true = new circulars, false = unchanged
+python tools/health_report.py  # Actions run history + data freshness in one go
+```
 
 ## Deploy / re-deploy
 

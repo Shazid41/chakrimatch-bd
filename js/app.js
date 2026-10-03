@@ -112,6 +112,84 @@ function renderSourceInfo() {
   if ($("#statSources")) $("#statSources").textContent = state.meta.organizations;
 }
 
+/* ============================================================
+   CRAWLER STATUS — read straight from GitHub's public Actions
+   API so the site can prove the scheduled job is still running.
+   Results are cached for 5 minutes; on failure we fall back to
+   the cached copy, then to a plain link to the Actions tab.
+   ============================================================ */
+const GH_RUNS_URL =
+  "https://api.github.com/repos/Shazid41/chakrimatch-bd/actions/workflows/update-jobs.yml/runs?per_page=3";
+const GH_ACTIONS_URL = "https://github.com/Shazid41/chakrimatch-bd/actions";
+
+function shortAgo(ms) {
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} minute${mins > 1 ? "s" : ""} ago`;
+  const h = Math.floor(mins / 60);
+  if (h < 48) return `${h} hour${h > 1 ? "s" : ""} ago`;
+  return `${Math.floor(h / 24)} day${Math.floor(h / 24) > 1 ? "s" : ""} ago`;
+}
+
+async function renderCrawlerStatus() {
+  const cached = load("cm_ghruns", null);
+  const isFresh = cached && cached.ts && (Date.now() - cached.ts) < 5 * 60000;
+  if (isFresh) { paintCrawlerStatus(cached.runs, false); return; }
+  try {
+    const res = await fetch(GH_RUNS_URL, { headers: { Accept: "application/vnd.github+json" } });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    const runs = Array.isArray(data.workflow_runs) ? data.workflow_runs : [];
+    if (!runs.length) throw new Error("no runs");
+    save("cm_ghruns", { ts: Date.now(), runs });
+    paintCrawlerStatus(runs, false);
+  } catch {
+    paintCrawlerStatus(cached && cached.runs, true);   // stale copy or nothing
+  }
+}
+
+function paintCrawlerStatus(runs, stale) {
+  const dot = $("#csDot"), stateEl = $("#csState"), body = $("#csBody");
+  if (!dot) return;
+
+  if (!runs || !runs.length) {
+    dot.className = "cs-dot unknown";
+    stateEl.textContent = "unknown";
+    body.innerHTML = `Live status is unreachable right now — open the ` +
+      `<a href="${GH_ACTIONS_URL}" target="_blank" rel="noopener">Actions tab</a> ` +
+      `to see the crawl history yourself.`;
+    return;
+  }
+
+  const r = runs[0];
+  const when = new Date(r.created_at);
+  const ago = shortAgo(Date.now() - when.getTime());
+  const link = `<a href="${esc(r.html_url)}" target="_blank" rel="noopener">run #${r.run_number} ↗</a>`;
+  const eventTxt = r.event === "schedule" ? "automatic schedule" :
+                   r.event === "workflow_dispatch" ? "manual trigger" : r.event;
+
+  let tone = "ok", stateTxt = "healthy", headline;
+  if (r.status !== "completed") {
+    tone = "running"; stateTxt = "running";
+    headline = `<b>Crawling now</b> — started ${ago} (${eventTxt}). ${link}`;
+  } else if (r.conclusion === "success") {
+    headline = `<b>Last crawl succeeded</b> ${ago} (${eventTxt}) — ${link}`;
+  } else if (r.conclusion === null || r.conclusion === undefined) {
+    headline = `<b>Last crawl finished</b> ${ago} — ${link}`;
+  } else {
+    tone = "fail"; stateTxt = "failed";
+    headline = `<b>Last crawl ${esc(r.conclusion)}</b> ${ago} (${eventTxt}) — ` +
+               `<a href="${esc(r.html_url)}" target="_blank" rel="noopener">open the log to see why ↗</a>`;
+  }
+
+  dot.className = "cs-dot " + tone;
+  stateEl.textContent = stateTxt + (stale ? " (cached)" : "");
+  body.innerHTML =
+    headline +
+    `<span class="cs-sub">Scheduled every 6 hours · ${runs.length} most recent runs ` +
+    `(<a href="${GH_ACTIONS_URL}" target="_blank" rel="noopener">view all</a>).</span>`;
+}
+
 /* ---------------- helpers ---------------- */
 function load(key, fallback) {
   try {
@@ -602,6 +680,7 @@ async function finishScan() {
   if (state.meta.live) {
     const added = await refreshLiveData();
     renderSourceInfo();
+    renderCrawlerStatus();
     if (added.length) {
       renderFilters(); renderCategories(); renderResults();
       added.forEach(j => pushNotif("New Job Alert",
@@ -888,6 +967,8 @@ async function init() {
   renderNotifs();
   bindEvents();
   renderSourceInfo();
+  renderCrawlerStatus();                    // proves the 6-hourly cron is alive
+  setInterval(renderCrawlerStatus, 5 * 60000);
   const first = state.jobs[0];
   $("#alertSampleJob").innerHTML = first
     ? `<b>${esc(first.title)}</b> — ${esc(first.org)} · Deadline: ${fmtDate(first.deadline)}`
