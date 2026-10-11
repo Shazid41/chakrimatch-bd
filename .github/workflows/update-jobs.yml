@@ -27,16 +27,16 @@ jobs:
           python-version: "3.12"
 
       # stdlib only — no pip install required
-      - name: Collect circulars from the Teletalk public API
+      - name: Collect circulars (Teletalk API + Bangladesh Bank eRecruitment)
         run: python scraper/collect.py
 
       - name: Commit the refreshed data
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/jobs.json
+          git add data/jobs.json data/bank_jobs.json
           if git diff --cached --quiet; then
-            echo "No change in data/jobs.json — nothing to commit."
+            echo "No change in the circulars — nothing to commit."
           else
             git commit -m "chore: refresh live circulars $(date -u +%Y-%m-%dT%H:%MZ)"
             git push

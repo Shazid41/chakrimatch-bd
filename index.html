@@ -101,7 +101,7 @@
 <section class="search-section">
   <div class="container">
     <div class="smart-search">
-      <label for="smartQuery">🧠 Intelligent search — বাংলায় বা ইংরেজিতে লিখুন</label>
+      <label for="smartQuery">🔎 Smart search — বাংলায় বা ইংরেজিতে লিখুন</label>
       <div class="search-row">
         <input id="smartQuery" type="text" placeholder="e.g. আমি CSE graduate, বয়স ২৪, ঢাকার বাইরে হলেও সমস্যা নেই, ৯-১৩ গ্রেডের চাকরি চাই" />
         <button class="btn btn-primary" id="smartSearchBtn">Search</button>
@@ -299,17 +299,29 @@
             <button class="chip" data-status="saved">🔖 Saved <b id="nSaved">0</b></button>
           </div>
           <select id="sortSelect" class="sort-select">
-            <option value="deadline">Sort: Deadline soonest</option>
+            <option value="recent">Sort: Most recent first</option>
+            <option value="deadline">Sort: Ending soonest</option>
             <option value="match">Sort: Best match</option>
-            <option value="new">Sort: Newest first</option>
           </select>
         </div>
+
+        <!-- BANK VACANCIES — Bangladesh Bank eRecruitment, always on top -->
+        <section class="bank-strip" id="bankStrip" hidden>
+          <div class="bank-strip-head">
+            <h3>🏦 সরকারি ব্যাংক চাকরি <span class="bank-strip-sub">Government bank vacancies — Bangladesh Bank eRecruitment</span></h3>
+            <span class="bank-strip-note" id="bankNote" hidden></span>
+          </div>
+          <div class="job-list bank-list" id="bankList"></div>
+          <div id="bankMore"></div>
+        </section>
 
         <div class="job-list-head">
           <span>Job / Organization</span><span>Deadline</span><span>Your Match</span><span>Actions</span>
         </div>
 
         <div id="jobList" class="job-list"></div>
+
+        <nav class="pagination" id="pagination" hidden aria-label="Job list pages"></nav>
 
         <div id="emptyState" class="empty" hidden>
           <div class="empty-icon">🔍</div>
@@ -339,7 +351,7 @@
       <span class="pipe-arrow">→</span>
       <div class="pipe-step" data-step="3"><span class="pipe-icon">📄</span><b>PDF / Notice</b><small>collect</small></div>
       <span class="pipe-arrow">→</span>
-      <div class="pipe-step" data-step="4"><span class="pipe-icon">🧠</span><b>AI Document Parser</b><small>extract fields</small></div>
+      <div class="pipe-step" data-step="4"><span class="pipe-icon">📄</span><b>Circular Parser</b><small>extract fields</small></div>
       <span class="pipe-arrow">→</span>
       <div class="pipe-step" data-step="5"><span class="pipe-icon">🧾</span><b>Job Information</b><small>title, age, salary…</small></div>
       <span class="pipe-arrow">→</span>
@@ -350,14 +362,31 @@
       <div class="pipe-step" data-step="8"><span class="pipe-icon">🔔</span><b>Your Website</b><small>+ alert</small></div>
     </div>
 
-    <div class="pipeline-controls">
+    <div class="pipeline-controls admin-only">
       <button class="btn btn-accent" id="runPipelineBtn">▶ Run crawler now</button>
       <span class="next-scan">Next auto-scan in <b id="nextScan">5:00</b></span>
     </div>
+
+    <!-- owner sign-in: the crawler controls above are hidden from visitors -->
+    <div class="card admin-login admin-when-in" id="adminBox">
+      <form id="adminForm">
+        <b>🔐 Site owner only</b>
+        <div class="admin-row">
+          <input id="adminEmail" type="email" placeholder="Email" autocomplete="username" required />
+          <input id="adminPass" type="password" placeholder="Password" autocomplete="current-password" required />
+          <button class="btn btn-sm btn-primary" type="submit">Sign in</button>
+        </div>
+        <p class="admin-note" id="adminError" hidden>Wrong email or password.</p>
+      </form>
+    </div>
+    <div class="admin-badge admin-only" id="adminPill" hidden>
+      🔑 Admin mode <button class="link-btn" id="adminLogout">sign out</button>
+    </div>
+
     <p class="source-note" id="sourceLine">Loading data source…</p>
 
-    <!-- Crawler health — live from the public GitHub Actions API -->
-    <div class="crawler-status card" id="crawlerStatus">
+    <!-- Crawler health — live from the public GitHub Actions API (owner only) -->
+    <div class="crawler-status card admin-only" id="crawlerStatus">
       <div class="cs-head">
         <span class="cs-title">⚙️ Crawler status</span>
         <span class="cs-dot" id="csDot" aria-hidden="true"></span>
@@ -440,7 +469,7 @@
       </div>
       <div class="match-example">
         <div class="match-line warn">Circular: <i>“CSE / ICT / EEE / ECE / Mathematics / Statistics”</i></div>
-        <div class="match-line warn">AI analyses the qualification text against your profile → ✅ with explanation</div>
+        <div class="match-line warn">Rules compare the qualification text with your profile → ✅ with explanation</div>
       </div>
       <div class="why-box">
         <b>“Why am I eligible?”</b>

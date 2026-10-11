@@ -5,6 +5,8 @@
 /* Fixed "today" so demo deadlines stay meaningful */
 const TODAY = Date.now() > new Date("2026-09-01").getTime() ? new Date() : new Date("2026-10-02T00:00:00");
 
+const bank_jobs_URL = "https://erecruitment.bb.org.bd/onlineapp/joblist.php";
+
 const DEFAULT_PROFILE = {
   name: "",
   education: "Bachelor's",
@@ -26,17 +28,22 @@ const state = {
   profile: load("cm_profile", DEFAULT_PROFILE),
   jobs: JOBS.map(j => ({ ...j })),
   meta: { live: false, generatedAt: null, source: null, sourceUrl: null,
-          organizations: SOURCES_COUNT, qualificationNote: "" },
+          organizations: SOURCES_COUNT, qualificationNote: "", sources: [], banks: 0,
+          bankSource: null },
   saved: new Set(load("cm_saved", [])),
   notifs: load("cm_notifs", []),
   filters: { edu: [], type: [], grade: [] },
   status: "all",
-  sort: "deadline",
+  sort: "recent",           // recent | deadline | match
+  page: 1,
+  pageSize: 10,
+  showAllBanks: false,
   query: null,          // parsed smart query
   queryText: "",
   incomingQueue: INCOMING_JOBS.map(j => ({ ...j })),
   lastScan: Date.now(),
-  scanning: false
+  scanning: false,
+  admin: sessionStorage.getItem("cm_admin") === "1"
 };
 
 /* ============================================================
@@ -61,7 +68,10 @@ async function loadLiveJobs() {
       source: d.source || null,
       sourceUrl: d.sourceUrl || null,
       organizations: d.organizations || SOURCES_COUNT,
-      qualificationNote: d.qualificationNote || ""
+      qualificationNote: d.qualificationNote || "",
+      sources: d.sources || [],
+      banks: d.banks || 0,
+      bankSource: d.bankSource || null
     };
     return true;
   } catch {
@@ -76,11 +86,18 @@ async function refreshLiveData() {
     const d = await fetchJobsJson();
     if (!d || !Array.isArray(d.jobs)) return [];
     const known = new Set(state.jobs.map(j => j.id));
+    const wasFresh = new Set(state.jobs.filter(j => j.fresh).map(j => j.id));
     const added = d.jobs.filter(j => !known.has(j.id)).map(j => ({ ...j, fresh: true }));
-    if (added.length) {
-      state.jobs.unshift(...added);
-      state.meta.generatedAt = d.generatedAt || state.meta.generatedAt;
-    }
+    // rebuild the whole list so closed circulars drop out and the order matches
+    // the freshly scraped data (bank vacancies come first)
+    state.jobs = d.jobs.map(j => ({
+      ...j,
+      fresh: added.length ? known.has(j.id) ? wasFresh.has(j.id) : true : wasFresh.has(j.id)
+    }));
+    state.meta.generatedAt = d.generatedAt || state.meta.generatedAt;
+    state.meta.banks = d.banks || state.meta.banks;
+    state.meta.bankSource = d.bankSource || state.meta.bankSource;
+    state.meta.sources = d.sources || state.meta.sources;
     return added;
   } catch {
     return [];
@@ -96,20 +113,37 @@ function generatedLabel() {
 
 function renderSourceInfo() {
   const line = $("#dataSource");
+  const bankCount = state.jobs.filter(j => j.isBank).length;
   if (line) {
     line.innerHTML = state.meta.live
-      ? `🟢 Live: <b>${state.meta.organizations} organisations</b> · ${state.jobs.length} open circulars · updated ${esc(generatedLabel())}`
+      ? `🟢 Live: <b>${state.meta.organizations} organisations</b> + ${bankCount} bank posts · ${state.jobs.length} open circulars · updated ${esc(generatedLabel())}`
       : `🟡 Offline demo mode — open through a web server for live circulars`;
   }
   const src = $("#sourceLine");
   if (src) {
     src.innerHTML = state.meta.live
-      ? `Data source: <a href="${esc(state.meta.sourceUrl || "#")}" target="_blank" rel="noopener">${esc(state.meta.source)}</a> — rebuilt automatically every 6 hours.`
+      ? `Data sources: <a href="${esc(state.meta.sourceUrl || "#")}" target="_blank" rel="noopener">Alljobs by Teletalk</a>
+         + <a href="${esc(bank_jobs_URL)}" target="_blank" rel="noopener">Bangladesh Bank eRecruitment</a>
+         — refreshed automatically every 6 hours.`
       : `Data source: embedded demo circulars (live fetch unavailable).`;
   }
   const pipe = $("#pipeSources");
-  if (pipe) pipe.textContent = `${state.meta.organizations} sources`;
+  if (pipe) pipe.textContent = `${state.meta.organizations + (bankCount ? 1 : 0)} sources`;
   if ($("#statSources")) $("#statSources").textContent = state.meta.organizations;
+
+  /* bank freshness note (the BB site blocks bots, so the read can be a snapshot) */
+  const bn = $("#bankNote");
+  if (bn) {
+    const bs = state.meta.bankSource;
+    if (!bankCount) { bn.hidden = true; }
+    else if (bs && bs.stale) {
+      const when = bs.lastOk
+        ? new Date(bs.lastOk).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+        : "an earlier run";
+      bn.hidden = false;
+      bn.innerHTML = `⚠️ Bangladesh Bank blocked today's automated read, so these ${bankCount} vacancies are the last successful snapshot (${esc(when)}). Verify each one on <a href="${esc(bank_jobs_URL)}" target="_blank" rel="noopener">erecruitment.bb.org.bd ↗</a>.`;
+    } else { bn.hidden = true; }
+  }
 }
 
 /* ============================================================
@@ -132,6 +166,7 @@ function shortAgo(ms) {
 }
 
 async function renderCrawlerStatus() {
+  if (!state.admin) return;                  // the panel is owner-only; skip the API call
   const cached = load("cm_ghruns", null);
   const isFresh = cached && cached.ts && (Date.now() - cached.ts) < 5 * 60000;
   if (isFresh) { paintCrawlerStatus(cached.runs, false); return; }
@@ -380,11 +415,23 @@ function buildRows(profile, useKeywords) {
         // a query for a major must also return "any bachelor's degree" posts
         if (q.majors.length &&
             !q.majors.some(m => job.requiredDegrees.includes(m) || job.requiredDegrees.includes("All"))) return false;
+        // job type words: "ব্যাংক", "মন্ত্রণালয়", "bcs" …
+        if (q.jobTypes.length &&
+            !q.jobTypes.some(t => job.type === t || job.edu === t ||
+              (t === "Government Bank" && job.isBank))) return false;
+        // "মাস্টার্স চাই" — only circulars that publish a level can answer this
+        if (q.minLevel) {
+          const LVL = { "": 0, diploma: 1, bachelor: 2, master: 3 };
+          const want = LVL[q.minLevel] || 0;
+          const have = LVL[job.minEducationLevel || ""] || 0;
+          if (want && have && have > want) return false;
+        }
         // grades: only filter when the live data actually publishes them
         if (q.grades.length && gradesArePublished() && !q.grades.includes(job.grade)) return false;
         if (q.deadlineDays && daysLeft(job.deadline) > q.deadlineDays) return false;
         if (useKeywords && q.titleWords.length) {
-          const hay = (job.title + " " + job.org + " " + job.summary + " " + job.edu + " " + job.type).toLowerCase();
+          const hay = [job.title, job.org, job.bank, job.summary, job.edu, job.type,
+                       job.salary, job.degreeText, job.jobId].filter(Boolean).join(" ").toLowerCase();
           if (!q.titleWords.some(w => hay.includes(w.toLowerCase()))) return false;
         }
       }
@@ -394,17 +441,24 @@ function buildRows(profile, useKeywords) {
     .map(job => ({ job, ev: evaluateJob(job, profile) }));
 }
 
-function applyStatusAndSort(rows) {
-  let out = rows;
-  if (state.status === "saved") out = out.filter(r => state.saved.has(r.job.id));
-  else if (state.status !== "all") out = out.filter(r => r.ev.status === state.status);
+function statusFilter(rows) {
+  if (state.status === "saved") return rows.filter(r => state.saved.has(r.job.id));
+  if (state.status !== "all") return rows.filter(r => r.ev.status === state.status);
+  return rows;
+}
 
+function sortRows(rows) {
   const order = { eligible: 0, check: 1, not: 2 };
+  const out = rows.slice();
   if (state.sort === "deadline") out.sort((a, b) => new Date(a.job.deadline) - new Date(b.job.deadline));
   else if (state.sort === "match") out.sort((a, b) => b.ev.score - a.ev.score || order[a.ev.status] - order[b.ev.status]);
-  else out.sort((a, b) => new Date(b.job.posted) - new Date(a.job.posted));
+  else out.sort((a, b) => (new Date(b.job.posted) - new Date(a.job.posted)) ||
+                          (new Date(a.job.deadline) - new Date(b.job.deadline)));
   return out;
 }
+
+/* kept for older call sites */
+function applyStatusAndSort(rows) { return sortRows(statusFilter(rows)); }
 
 function deadlineCell(job) {
   const d = daysLeft(job.deadline);
@@ -414,20 +468,26 @@ function deadlineCell(job) {
 }
 
 function whyPanelHTML(job, ev) {
-  const ico = { ok: "✅", warn: "⚠️", bad: "❌" };
+  const ico = { ok: "✅", warn: "⚠️", info: "ℹ️", bad: "❌" };
   const items = ev.checks.map(c => {
-    const level = c.ok ? "ok" : (c.severity === "soft" ? "warn" : "bad");
+    const level = c.ok ? "ok" : (c.severity === "soft" ? "warn" : c.severity === "info" ? "info" : "bad");
     const tail = c.ok
-      ? (c.key === "degree" || c.key === "age" || c.key === "cgpa" || c.key === "experience"
-          ? `<b>${esc(c.yours)}</b>` : "")
-      : (c.severity === "soft" ? `<b>${esc(c.warnText || "mismatch")}</b>` : "");
+      ? (c.key === "degree" || c.key === "age" || c.key === "cgpa" || c.key === "experience" ||
+         c.key === "level" ? `<b>${esc(c.yours)}</b>` : "")
+      : (c.severity === "soft" ? `<b>${esc(c.warnText || "mismatch")}</b>`
+        : c.severity === "info" ? `<b>${esc(c.warnText || "not in your profile")}</b>` : "");
     return `<li class="why-${level}"><span class="why-ico">${ico[level]}</span>
       <span><b>${esc(c.label)}:</b> ${esc(c.required)} ${c.ok ? "→" : "→ ✗"} ${tail || (!c.ok && c.severity === "hard" ? `<b>${esc(c.yours)}</b>` : "")}</span></li>`;
   }).join("");
 
+  const heading = ev.status === "eligible" ? "Why am I eligible?"
+    : ev.prefOnly ? "Why is it outside my preferences?"
+    : ev.status === "check" ? "What needs a closer look?"
+    : "Why am I not eligible?";
+
   return `
     <div class="why-panel" id="why-${job.id}" hidden>
-      <h5>🧠 Why ${ev.status === "not" ? "not " : ""}am I ${ev.status === "eligible" ? "eligible" : ev.status === "check" ? "eligible (with notes)" : "not eligible"}?</h5>
+      <h5>ℹ️ ${heading}</h5>
       <ul class="why-list">${items}</ul>
       <div class="why-verdict"><b>Verdict:</b> ${esc(ev.verdict)}</div>
     </div>`;
@@ -437,31 +497,34 @@ function jobCardHTML(job, ev) {
   const meta = STATUS_META[ev.status];
   const saved = state.saved.has(job.id);
   const d = daysLeft(job.deadline);
+  const statusLabel2 = ev.prefOnly ? "⚠️ Your preference" : meta.label;
+  const statusCls = ev.prefOnly ? "match-check" : meta.badge;
   return `
-  <article class="job-card ${meta.cls}" data-id="${job.id}">
+  <article class="job-card ${meta.cls} ${job.isBank ? "job-card-bank" : ""}" data-id="${job.id}">
     <div class="job-main">
-      <div class="job-title">${esc(job.title)}${job.fresh ? '<span class="job-new-badge">NEW</span>' : ""}</div>
-      <div class="job-org">${esc(job.org)}</div>
+      <div class="job-title">${job.isBank ? '<span class="bank-flag">🏦 Bank</span>' : ""}${esc(job.title)}${job.fresh ? '<span class="job-new-badge">NEW</span>' : ""}</div>
+      <div class="job-org">${esc(job.org)}${job.jobId ? ` · Job ID ${esc(job.jobId)}` : ""}</div>
       <div class="job-meta">
         ${job.grade && job.grade !== "Other"
           ? `<span class="tag grade">${esc(job.grade)}</span>`
-          : `<span class="tag">🎓 ${esc(job.edu || "Any degree")}</span>`}
+          : ""}
+        <span class="tag">🎓 ${esc(job.edu || "Any degree")}</span>
         <span class="tag">${esc(job.type)}</span>
         <span class="tag">💼 ${job.vacancies || esc(job.vacancyRaw) || "—"} posts</span>
-        <span class="tag">📍 ${esc(job.location)}</span>
+        ${job.minCGPA ? `<span class="tag">CGPA ${job.minCGPA.toFixed(2)}</span>` : ""}
         ${job.expYears ? `<span class="tag"> exp ${job.expYears}y</span>` : ""}
         ${job.isLive ? `<span class="tag tag-live">● LIVE</span>` : ""}
       </div>
-      <button class="why-btn" data-why="${job.id}">🧠 Why am I ${ev.status === "not" ? "not " : ""}eligible? ▾</button>
+      <button class="why-btn" data-why="${job.id}">ℹ️ Why ${ev.status === "not" ? "not " : ""}eligible? ▾</button>
     </div>
     <div class="job-deadline">${deadlineCell(job)}</div>
     <div class="job-match">
-      <span class="match-badge ${meta.badge}">${meta.label}</span>
+      <span class="match-badge ${statusCls}">${statusLabel2}</span>
       <span class="match-score">${ev.score}% profile match${d <= 3 ? " · closing!" : ""}</span>
     </div>
     <div class="job-actions">
-      <a class="btn btn-outline" href="${esc(job.pdfUrl)}" target="_blank" rel="noopener">📄 View Circular</a>
-      <a class="btn btn-accent" href="${esc(job.applyUrl)}" target="_blank" rel="noopener">Apply Now ↗</a>
+      <a class="btn btn-outline" href="${esc(job.pdfUrl)}" target="_blank" rel="noopener">📄 Circular</a>
+      <a class="btn btn-accent" href="${esc(job.applyUrl)}" target="_blank" rel="noopener">Apply ↗</a>
       <button class="save-btn ${saved ? "saved" : ""}" data-save="${job.id}" title="Save job">${saved ? "🔖" : "🔖+"}</button>
     </div>
     ${whyPanelHTML(job, ev)}
@@ -469,26 +532,76 @@ function jobCardHTML(job, ev) {
 }
 
 function renderResults() {
-  const rows = applyStatusAndSort(visibleJobs());
-  $("#jobList").innerHTML = rows.map(r => jobCardHTML(r.job, r.ev)).join("");
-  $("#emptyState").hidden = rows.length > 0;
-
-  // counts
-  const all = visibleJobs();
+  const all = statusFilter(visibleJobs());
   const c = { eligible: 0, check: 0, not: 0 };
-  all.forEach(r => c[r.ev.status]++);
+  visibleJobs().forEach(r => c[r.ev.status]++);
+
+  /* ---- bank vacancies get their own strip at the top ---- */
+  const bankRows = sortRows(all.filter(r => r.job.isBank));
+  const mainRows = sortRows(all.filter(r => !r.job.isBank));
+
+  const strip = $("#bankStrip");
+  if (strip) {
+    if (!bankRows.length) {
+      strip.hidden = true;
+      strip.innerHTML = "";
+    } else {
+      strip.hidden = false;
+      const shown = state.showAllBanks ? bankRows : bankRows.slice(0, 4);
+      $("#bankList").innerHTML = shown.map(r => jobCardHTML(r.job, r.ev)).join("");
+      $("#bankMore").innerHTML = bankRows.length > shown.length
+        ? `<button class="btn btn-outline" id="bankShowAll">See all ${bankRows.length} bank vacancies ↓</button>`
+        : bankRows.length > 4
+          ? `<button class="btn btn-ghost" id="bankShowAll">Show fewer ↑</button>`
+          : "";
+    }
+  }
+
+  /* ---- main list is paginated ---- */
+  const pages = Math.max(1, Math.ceil(mainRows.length / state.pageSize));
+  if (state.page > pages) state.page = pages;
+  const from = (state.page - 1) * state.pageSize;
+  const slice = mainRows.slice(from, from + state.pageSize);
+
+  $("#jobList").innerHTML = slice.map(r => jobCardHTML(r.job, r.ev)).join("");
+  $("#emptyState").hidden = mainRows.length > 0 || bankRows.length > 0;
+
+  const pager = $("#pagination");
+  if (pager) {
+    pager.hidden = mainRows.length <= state.pageSize;
+    if (!pager.hidden) {
+      const btn = (label, page, disabled, active) =>
+        `<button class="pg-btn ${active ? "active" : ""}" ${disabled ? "disabled" : ""} data-page="${page}">${label}</button>`;
+      let numbers = "";
+      const window5 = [];
+      for (let p = 1; p <= pages; p++) {
+        if (p === 1 || p === pages || Math.abs(p - state.page) <= 2) window5.push(p);
+      }
+      let prevP = 0;
+      window5.forEach(p => {
+        if (p - prevP > 1) numbers += `<span class="pg-gap">…</span>`;
+        numbers += btn(p, p, false, p === state.page);
+        prevP = p;
+      });
+      pager.innerHTML =
+        btn("‹ Prev", state.page - 1, state.page <= 1, false) + numbers +
+        btn("Next ›", state.page + 1, state.page >= pages, false) +
+        `<span class="pg-info">Showing ${mainRows.length ? from + 1 : 0}–${Math.min(from + state.pageSize, mainRows.length)} of ${mainRows.length} circulars · page ${state.page}/${pages}</span>`;
+    }
+  }
+
   $("#nAll").textContent = all.length;
   $("#nEligible").textContent = c.eligible;
   $("#nCheck").textContent = c.check;
   $("#nNot").textContent = c.not;
-  $("#nSaved").textContent = all.filter(r => state.saved.has(r.job.id)).length;
+  $("#nSaved").textContent = visibleJobs().filter(r => state.saved.has(r.job.id)).length;
 
   // side score card
   $("#cntEligible").textContent = c.eligible;
   $("#cntCheck").textContent = c.check;
   $("#cntNot").textContent = c.not;
   $("#eligibleCount").textContent = c.eligible;
-  const total = Math.max(all.length, 1);
+  const total = Math.max(visibleJobs().length, 1);
   $("#ringFg").style.strokeDashoffset = String(Math.round(327 * (1 - c.eligible / total)));
 
   // closest deadline
@@ -532,18 +645,24 @@ function openModal(id) {
   const salaryLine = job.salary ? esc(job.salary)
     : gradePublished ? esc(job.grade) + " (grade only)" : "Not published in the summary";
   const cgpaLine = job.minCGPA ? `${job.minCGPA.toFixed(2)} / 4.00` : "Not published in the summary";
+  const levelLine = job.minEducationLevel
+    ? `${job.minEducationLevel.charAt(0).toUpperCase() + job.minEducationLevel.slice(1)} or above`
+    : "Not published in this summary";
+  const ageLine = (job.ageMin && job.ageMax)
+    ? `${job.ageMin}–${job.ageMax} years`
+    : "Not published in this summary";
   const docsList = (job.docs && job.docs.length)
     ? `<ul class="m-docs">${job.docs.map(d => `<li>${esc(d)}</li>`).join("")}</ul>`
     : `<p class="m-muted">The document list is inside the circular PDF — open it below before applying.</p>`;
 
   $("#modalBody").innerHTML = `
     <div class="m-badges">
-      <span class="match-badge ${meta.badge}">${meta.label}</span>
-      ${job.grade && job.grade !== "Other"
-        ? `<span class="tag grade">${esc(job.grade)}</span>`
-        : `<span class="tag">🎓 ${esc(job.edu || "Any degree")}</span>`}
+      <span class="match-badge ${ev.prefOnly ? "match-check" : meta.badge}">${ev.prefOnly ? "⚠️ Your preference" : meta.label}</span>
+      ${gradePublished ? `<span class="tag grade">${esc(job.grade)}</span>` : ""}
+      <span class="tag">🎓 ${esc(job.edu || "Any degree")}</span>
       <span class="tag">${esc(job.type)}</span>
       <span class="tag">${ev.score}% profile match</span>
+      ${job.degreeSource === "official" ? `<span class="tag tag-inferred" style="background:#ECFDF3;border-color:#A6F4C5;color:#027A48">✔ requirement published by the source</span>` : ""}
     </div>
     <h2>${esc(job.title)}</h2>
     <div class="m-org">${esc(job.org)} · 📍 ${esc(job.location)}</div>
@@ -551,15 +670,17 @@ function openModal(id) {
 
     <div class="m-grid">
       <div class="m-field"><span>Vacancies</span><b>${job.vacancies || esc(job.vacancyRaw) || "—"} posts</b></div>
-      <div class="m-field"><span>Salary / Grade</span><b>${salaryLine}</b></div>
-      <div class="m-field"><span>Age limit</span><b>${job.ageMin || "?"}–${job.ageMax || "?"} years</b></div>
+      <div class="m-field"><span>Salary</span><b>${salaryLine}</b></div>
+      <div class="m-field"><span>Education level</span><b>${levelLine}</b></div>
       <div class="m-field"><span>Minimum CGPA</span><b>${cgpaLine}</b></div>
+      <div class="m-field"><span>Age limit</span><b>${ageLine}</b></div>
       <div class="m-field"><span>Experience</span><b>${job.expYears ? job.expYears + " year(s)" : "Not required"}</b></div>
-      <div class="m-field"><span>Application start</span><b>${job.start ? fmtDate(job.start) : "—"}</b></div>
+      <div class="m-field"><span>Application fee</span><b>${job.fee ? esc(job.fee) : "Not published in this summary"}</b></div>
       <div class="m-field"><span>Deadline</span><b>${fmtDate(job.deadline)} (${daysLeft(job.deadline)} days left)</b></div>
       <div class="m-field"><span>Gender</span><b>${job.gender === "any" ? "Open to all" : job.gender === "female" ? "Female only" : "Male only"}</b></div>
       ${job.advertisementNo ? `<div class="m-field"><span>Circular no.</span><b>${esc(job.advertisementNo)}</b></div>` : ""}
       ${job.jobId ? `<div class="m-field"><span>Job ID</span><b>${esc(job.jobId)}</b></div>` : ""}
+      ${job.ageOn ? `<div class="m-field"><span>Age calculated on</span><b>${esc(job.ageOn)}</b></div>` : ""}
       ${job.orgWebsite ? `<div class="m-field"><span>Organisation website</span><b><a href="${esc(job.orgWebsite)}" target="_blank" rel="noopener">${esc(job.orgWebsite.replace(/^https?:\/\//, ""))} ↗</a></b></div>` : ""}
     </div>
 
@@ -569,12 +690,12 @@ function openModal(id) {
     </div>
 
     <div class="m-section">
-      <h4>🤖 AI Eligibility Analysis — “Why am I eligible?”</h4>
+      <h4>✅ Eligibility check — what we compared</h4>
       <div class="m-why">
         <ul class="why-list">
           ${ev.checks.map(c => {
-            const level = c.ok ? "ok" : (c.severity === "soft" ? "warn" : "bad");
-            const ico = { ok: "✅", warn: "⚠️", bad: "❌" }[level];
+            const level = c.ok ? "ok" : (c.severity === "soft" ? "warn" : c.severity === "info" ? "info" : "bad");
+            const ico = { ok: "✅", warn: "⚠️", info: "ℹ️", bad: "❌" }[level];
             return `<li class="why-${level}"><span class="why-ico">${ico}</span>
               <span><b>${esc(c.label)}:</b> Required: ${esc(c.required)} — Yours: ${esc(c.yours)}</span></li>`;
           }).join("")}
@@ -594,6 +715,7 @@ function openModal(id) {
       ${job.posted ? ` · posted ${fmtDate(job.posted)}` : ""}
       ${job.viewCount ? ` · ${Number(job.viewCount).toLocaleString("en-GB")} views` : ""}.</p>
       ${job.degreeSource === "inferred" ? `<p class="m-muted">* Qualification, grade and salary are <b>not published</b> by the source summary — the qualification shown above is inferred from the post title. Always confirm in the circular PDF.</p>` : ""}
+      ${job.degreeSource === "official" ? `<p class="m-muted">The qualification and fee above were read from the source's own job list — they are not guesses. The circular PDF remains the final word.</p>` : ""}
     </div>
 
     ${job.note ? `<div class="m-section"><h4>⚠️ Note</h4><p>${esc(job.note)}</p></div>` : ""}
@@ -751,11 +873,16 @@ function runSmartSearch() {
   const raw = $("#smartQuery").value.trim();
   state.queryText = raw;
   state.query = raw ? parseSmartQuery(raw) : null;
+  state.page = 1;
+  if (state.query && state.query.sortHint) {
+    state.sort = state.query.sortHint;
+    if ($("#sortSelect")) $("#sortSelect").value = state.sort;
+  }
   renderParsed();
   renderResults();
   if (raw) {
     const n = visibleJobs().length;
-    toast("🧠 Query parsed", `"${raw.slice(0, 60)}${raw.length > 60 ? "…" : ""}" → ${n} job${n === 1 ? "" : "s"} found.`);
+    toast("🔎 Query applied", `"${raw.slice(0, 60)}${raw.length > 60 ? "…" : ""}" → ${n} job${n === 1 ? "" : "s"} found.`);
     document.getElementById("results").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
@@ -766,6 +893,13 @@ function renderParsed() {
   if (!q) { box.hidden = true; box.innerHTML = ""; return; }
   const tags = [];
   if (q.majors.length) tags.push(["Degree", q.majors.join(", ")]);
+  if (q.jobTypes.length) tags.push(["Job type", q.jobTypes.join(", ")]);
+  if (q.minLevel) {
+    const published = state.jobs.filter(j => j.minEducationLevel).length;
+    tags.push(["Minimum level", published
+      ? `${q.minLevel} (${published} circulars publish this — the rest are left in the list)`
+      : `${q.minLevel} — not published by live circulars, ignored`]);
+  }
   if (q.age) tags.push(["Age", q.age]);
   if (q.grades.length) {
     tags.push(["Grades", gradesArePublished()
@@ -775,11 +909,12 @@ function renderParsed() {
   if (q.gender) tags.push(["Gender", q.gender === "female" ? "Female" : "Male"]);
   if (q.relocate) tags.push(["Location", q.relocate === "yes" ? "Anywhere OK" : "Own location only"]);
   if (q.deadlineDays) tags.push(["Deadline", `within ${q.deadlineDays} days`]);
+  if (q.sortHint) tags.push(["Order", q.sortHint === "deadline" ? "Ending soonest first" : "Newest first"]);
   if (q.titleWords.length) tags.push(["Keywords", q.titleWords.slice(0, 5).join(", ")]);
 
   box.hidden = tags.length === 0;
   box.innerHTML = tags.map(([k, v]) => `<span class="parsed-tag">${k}: <b>${esc(v)}</b></span>`).join("") +
-    `<span class="parsed-tag" style="background:#FFF6E5;border-color:#F3E4BE;color:#8A5A00">AI parsed your query ✨</span>`;
+    `<span class="parsed-tag" style="background:#EFF8FF;border-color:#B2DDFF;color:#175CD3">Query understood ✓</span>`;
 }
 
 /* ============================================================
@@ -860,10 +995,12 @@ function bindEvents() {
     const v = e.target.value;
     if (e.target.checked) { if (!arr.includes(v)) arr.push(v); }
     else { const i = arr.indexOf(v); if (i > -1) arr.splice(i, 1); }
+    state.page = 1;
     renderResults();
   });
   $("#clearFilters").addEventListener("click", () => {
     state.filters = { edu: [], type: [], grade: [] };
+    state.page = 1;
     renderFilters(); renderResults();
   });
 
@@ -872,29 +1009,54 @@ function bindEvents() {
     const chip = e.target.closest("[data-status]");
     if (!chip) return;
     state.status = chip.dataset.status;
+    state.page = 1;
     $$("#statusChips .chip").forEach(c => c.classList.toggle("active", c === chip));
     renderResults();
   });
-  $("#sortSelect").addEventListener("change", e => { state.sort = e.target.value; renderResults(); });
+  $("#sortSelect").addEventListener("change", e => { state.sort = e.target.value; state.page = 1; renderResults(); });
 
-  // results interactions (delegated)
-  $("#jobList").addEventListener("click", e => {
+  // pagination
+  const pager = $("#pagination");
+  if (pager) {
+    pager.addEventListener("click", e => {
+      const b = e.target.closest("[data-page]");
+      if (!b || b.disabled) return;
+      state.page = parseInt(b.dataset.page, 10);
+      renderResults();
+      document.getElementById("results").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  // "see all bank vacancies" → expand the strip (does NOT touch the filters)
+  const bankMore = $("#bankMore");
+  if (bankMore) {
+    bankMore.addEventListener("click", () => {
+      state.showAllBanks = !state.showAllBanks;
+      renderResults();
+    });
+  }
+
+  // results interactions (delegated) — main list AND the bank strip
+  const cardClick = e => {
     const whyBtn = e.target.closest("[data-why]");
     if (whyBtn) {
       const panel = document.getElementById("why-" + whyBtn.dataset.why);
       panel.hidden = !panel.hidden;
-      whyBtn.textContent = panel.hidden ? "🧠 Why am I eligible? ▾" : "🧠 Hide explanation ▴";
+      whyBtn.textContent = panel.hidden ? "ℹ️ Why eligible? ▾" : "ℹ️ Hide explanation ▴";
       return;
     }
     const saveBtn = e.target.closest("[data-save]");
     if (saveBtn) { toggleSave(saveBtn.dataset.save); renderResults(); return; }
     const card = e.target.closest(".job-card");
     if (card && !e.target.closest("a")) openModal(card.dataset.id);
-  });
+  };
+  $("#jobList").addEventListener("click", cardClick);
+  const bankList = $("#bankList");
+  if (bankList) bankList.addEventListener("click", cardClick);
 
   $("#emptyReset").addEventListener("click", () => {
     state.filters = { edu: [], type: [], grade: [] };
-    state.status = "all"; state.query = null;
+    state.status = "all"; state.query = null; state.page = 1;
     $("#smartQuery").value = "";
     $$("#statusChips .chip").forEach(c => c.classList.toggle("active", c.dataset.status === "all"));
     renderParsed(); renderFilters(); renderResults();
@@ -914,6 +1076,7 @@ function bindEvents() {
     if (!item) return;
     const { key, val } = item.dataset;
     if (!state.filters[key].includes(val)) state.filters[key].push(val);
+    state.page = 1;
     renderFilters(); renderResults();
     document.getElementById("results").scrollIntoView({ behavior: "smooth" });
     toast("Filter applied", `${key === "edu" ? "Education" : key === "type" ? "Job type" : "Grade"}: ${val}`);
@@ -958,6 +1121,59 @@ function toggleSave(id) {
 }
 
 /* ============================================================
+   ADMIN GATE — crawler controls are for the site owner only.
+
+   ⚠️ Be clear about what this is: this is a *static* site, so there is
+   no server to check a password against. This hides the crawler panel
+   from visitors; it is NOT real security. Anyone who opens DevTools can
+   read the source. Use it to keep the interface simple, not to protect
+   anything secret.
+   ============================================================ */
+const ADMIN_EMAIL = "shazidsaharia21@gmail.com";
+/* djb2 hash of the password — keeps the literal out of the source, nothing more */
+function hashPass(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(16);
+}
+const ADMIN_PASS = hashPass("Shazid@961");
+
+function applyAdminGate() {
+  document.querySelectorAll(".admin-only").forEach(el => el.classList.toggle("admin-hidden", !state.admin));
+  document.querySelectorAll(".admin-when-in").forEach(el => el.classList.toggle("admin-hidden", state.admin));
+  const pill = $("#adminPill");
+  if (pill) pill.hidden = !state.admin;
+}
+
+function bindAdminGate() {
+  const form = $("#adminForm");
+  if (form) {
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      const email = $("#adminEmail").value.trim().toLowerCase();
+      const pass = $("#adminPass").value;
+      if (email === ADMIN_EMAIL && hashPass(pass) === ADMIN_PASS) {
+        state.admin = true;
+        sessionStorage.setItem("cm_admin", "1");
+        applyAdminGate();
+        renderCrawlerStatus();
+        toast("🔑 Admin mode", "Crawler controls are now visible.");
+      } else {
+        $("#adminError").hidden = false;
+        $("#adminPass").value = "";
+      }
+    });
+  }
+  const out = $("#adminLogout");
+  if (out) out.addEventListener("click", () => {
+    state.admin = false;
+    sessionStorage.removeItem("cm_admin");
+    applyAdminGate();
+    toast("Signed out", "Crawler controls are hidden again.");
+  });
+}
+
+/* ============================================================
    INIT
    ============================================================ */
 async function init() {
@@ -971,6 +1187,8 @@ async function init() {
   bindEvents();
   renderSourceInfo();
   renderCrawlerStatus();                    // proves the 6-hourly cron is alive
+  applyAdminGate();                         // crawler panel is owner-only
+  bindAdminGate();
   setInterval(renderCrawlerStatus, 5 * 60000);
   const first = state.jobs[0];
   $("#alertSampleJob").innerHTML = first

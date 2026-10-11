@@ -489,5 +489,38 @@ p{margin:0}
 .cs-sub{display:block;margin-top:5px;font-size:12.5px;color:var(--ink-3, #7a8494)}
 .cs-links{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;padding-top:9px;border-top:1px dashed #E4EAF2;font-size:12.5px}
 .cs-badge{display:inline-block;height:18px;vertical-align:-4px;margin-left:8px}
+
+/* ---------- bank vacancy strip ---------- */
+.bank-strip{margin:0 0 22px;padding:14px 14px 6px;border:1px solid #BFD8F5;background:linear-gradient(180deg,#F4F9FF 0%,#FBFDFF 60%);border-radius:10px}
+.bank-strip-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 12px;margin-bottom:10px}
+.bank-strip-head h3{font-size:15.5px;color:var(--ink,#101828);display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.bank-strip-sub{font-size:12px;font-weight:500;color:var(--ink-3,#7a8494)}
+.bank-strip-note{font-size:12.5px;line-height:1.55;color:#8A5A00;background:#FFF6E5;border:1px solid #F3E4BE;border-radius:7px;padding:6px 9px;flex-basis:100%}
+.bank-strip-note a{color:#8A5A00;font-weight:700}
+.job-card-bank{border-left:4px solid #0B63CE !important;background:#FFFFFF}
+.bank-flag{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.4px;color:#0B63CE;background:#EFF6FF;border:1px solid #BEDBFB;border-radius:5px;padding:1px 6px;margin-right:7px;vertical-align:2px}
+#bankMore{margin:8px 0 12px}
+
+/* ---------- pagination ---------- */
+.pagination{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:16px}
+.pg-btn{min-width:34px;padding:7px 11px;border:1px solid #D6DEE9;background:#fff;border-radius:7px;font-size:13px;font-weight:600;color:var(--ink-2,#5b6472);cursor:pointer;transition:.15s}
+.pg-btn:hover:not([disabled]){border-color:#0B63CE;color:#0B63CE}
+.pg-btn.active{background:#0B63CE;border-color:#0B63CE;color:#fff}
+.pg-btn[disabled]{opacity:.4;cursor:not-allowed}
+.pg-gap{color:var(--ink-3,#7a8494);padding:0 2px}
+.pg-info{margin-left:8px;font-size:12.5px;color:var(--ink-3,#7a8494)}
+
+/* ---------- admin gate ---------- */
+.admin-only.admin-hidden{display:none !important}
+.admin-login{margin:12px 0 4px;padding:12px 14px;border:1px dashed #D6DEE9;background:#FBFCFE}
+.admin-login b{display:block;font-size:13.5px;margin-bottom:8px;color:var(--ink,#101828)}
+.admin-row{display:flex;flex-wrap:wrap;gap:8px}
+.admin-row input{flex:1 1 190px;min-width:0;padding:8px 10px;border:1px solid #D6DEE9;border-radius:7px;font-size:13.5px;background:#fff}
+.admin-note{margin:8px 0 0;font-size:12.5px;color:#B42318}
+.admin-badge{display:inline-flex;align-items:center;gap:8px;margin:6px 0 2px;font-size:12.5px;font-weight:700;color:#0B63CE}
+
+/* ---------- why-panel: informational rows ---------- */
+.why-info .why-ico{opacity:.85}
+.why-info>span:last-child{color:var(--ink-2,#5b6472)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 @media (max-width:560px){.cs-links{gap:10px}}

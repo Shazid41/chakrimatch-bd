@@ -2,15 +2,19 @@
 """
 ChakriMatch BD — live government job collector.
 
-Source: Alljobs by Teletalk (https://alljobs.teletalk.com.bd) public API.
-No authentication required for:
-    GET /api/v1/govt-jobs/org-list?page=N&limit=M   (organizations + their posts)
-    GET /api/v1/govt-jobs/public-details?id=J       (age limit, dates, circular PDF, apply link)
-
-The API does NOT publish an educational-qualification field, so the required
-degree is INFERRED from the post title by rule (see infer_qualification()).
-Every job produced here is marked degreeSource="inferred" so the frontend can
-show "verify in circular" instead of a hard rejection.
+Sources (both public, no authentication):
+  1. Alljobs by Teletalk (https://alljobs.teletalk.com.bd) — civil-service circulars.
+        GET /api/v1/govt-jobs/org-list?page=N&limit=M   (organizations + their posts)
+        GET /api/v1/govt-jobs/public-details?id=J       (age limit, dates, circular PDF, apply link)
+     The API does NOT publish an educational-qualification field, so the required
+     degree is INFERRED from the post title by rule (see infer_qualification()).
+     Such jobs carry degreeSource="inferred".
+  2. Bangladesh Bank eRecruitment (https://erecruitment.bb.org.bd) — government
+     BANK vacancies. See scraper/bank_jobs.py. That page DOES publish the
+     educational requirement in plain text, so those jobs carry
+     degreeSource="official" and the matcher may reject them hard.
+     The site sits behind Tencent TSPD bot protection, so a successful fetch is
+     cached in data/bank_jobs.json and reused whenever the source blocks us.
 
 Output: data/jobs.json  (consumed by js/app.js)
 
@@ -29,11 +33,14 @@ import time
 import urllib.error
 import urllib.request
 
+import bank_jobs
+
 BASE = "https://alljobs.teletalk.com.bd"
 API = f"{BASE}/api/v1"
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 OUT = ROOT / "data" / "jobs.json"
+BANK_SNAPSHOT = ROOT / "data" / "bank_jobs.json"
 
 HEADERS = {
     "User-Agent": "ChakriMatch-BD/1.0 (+https://github.com/Shazid41)",
@@ -339,6 +346,55 @@ def _summary(title, org, detail):
     return " ".join(bits)
 
 
+# ------------------------------------------------------------- bank jobs (BB)
+def collect_bank(today: str) -> tuple[list[dict], dict]:
+    """Bangladesh Bank eRecruitment, with a snapshot fallback.
+
+    The source blocks bots on many IPs (and on GitHub's runners), so a failed or
+    empty fetch reuses the last good snapshot instead of losing the bank jobs.
+    """
+    info = {"ok": False, "blocked": False, "error": None, "fresh": False,
+            "stale": False, "lastOk": None}
+    try:
+        jobs, meta = bank_jobs.collect(today=today)
+    except Exception as e:                       # noqa: BLE001 - never break Teletalk
+        info["error"] = str(e)
+        jobs, meta = [], {}
+
+    info["ok"] = bool(meta.get("ok"))
+    info["blocked"] = bool(meta.get("blocked"))
+    info["error"] = meta.get("error") or info["error"]
+
+    if jobs:
+        info["fresh"] = True
+        info["lastOk"] = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+        BANK_SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
+        BANK_SNAPSHOT.write_text(json.dumps({
+            "fetchedAt": info["lastOk"],
+            "source": bank_jobs.JOBLIST,
+            "note": ("Bangladesh Bank eRecruitment active circulars — kept as a snapshot "
+                     "because the source blocks bot traffic on many IPs."),
+            "count": len(jobs),
+            "jobs": jobs,
+        }, ensure_ascii=False, indent=1), encoding="utf-8")
+        LOG(f"  BB eRecruitment: {len(jobs)} live bank circulars")
+        return jobs, info
+
+    # ---------- fall back to the last good snapshot ----------
+    info["stale"] = True
+    try:
+        snap = json.loads(BANK_SNAPSHOT.read_text(encoding="utf-8"))
+    except Exception:                             # noqa: BLE001 - no snapshot yet
+        LOG("  !! BB eRecruitment unreachable and no snapshot on file")
+        return [], info
+
+    info["lastOk"] = snap.get("fetchedAt")
+    kept = [j for j in (snap.get("jobs") or []) if (j.get("deadline") or "") >= today]
+    LOG(f"  !! BB eRecruitment {'blocked' if info['blocked'] else 'unavailable'} — "
+        f"reusing {len(kept)} bank jobs from {info['lastOk']}")
+    return kept, info
+
+
 # -----------------------------------------------------------------------------main
 def main() -> int:
     only = None
@@ -374,8 +430,20 @@ def main() -> int:
             LOG(f"  … {i}/{len(plan)}")
         time.sleep(0.15)                        # be gentle with the source
 
-    # newest deadlines first is not useful — keep soonest deadline on top
-    jobs.sort(key=lambda x: (x.get("deadline") or "9999-12-31"))
+    # Circulars whose deadline has passed are dropped so the published list only
+    # contains posts that are still open (and so generatedAt stays meaningful).
+    today = dt.date.today().isoformat()
+    before = len(jobs)
+    jobs = [j for j in jobs if (j.get("deadline") or "") >= today]
+    if before != len(jobs):
+        LOG(f"  dropped {before - len(jobs)} circulars whose deadline has passed")
+
+    # ---------- government bank vacancies (Bangladesh Bank eRecruitment) ------
+    bank_jobs_list, bank_info = collect_bank(today)
+    jobs.extend(bank_jobs_list)
+
+    # bank vacancies first, then the rest by soonest deadline
+    jobs.sort(key=lambda x: (not x.get("isBank"), x.get("deadline") or "9999-12-31"))
 
     # Rewrite the file only when the circulars themselves changed, otherwise the
     # scheduled workflow would commit a new timestamp (and view counts) every run.
@@ -391,26 +459,46 @@ def main() -> int:
     if prev and prev.get("_signature") == signature and prev.get("jobs"):
         LOG(f"no change in the {len(jobs)} live circulars — snapshot left untouched")
         print(json.dumps({"count": len(prev["jobs"]), "failed": failed,
-                          "changed": False, "out": str(OUT)}))
+                          "banks": len(bank_jobs_list), "changed": False, "out": str(OUT)}))
         return 0
 
     payload = {
         "generatedAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
-        "source": "alljobs.teletalk.com.bd (Alljobs by Teletalk — public API)",
+        "source": ("alljobs.teletalk.com.bd (Alljobs by Teletalk — public API) + "
+                   "erecruitment.bb.org.bd (Bangladesh Bank eRecruitment)"),
         "sourceUrl": f"{BASE}/jobs/government",
+        "sources": [
+            {"name": "Alljobs by Teletalk", "url": f"{BASE}/jobs/government",
+             "covers": "Civil service, directorates, ministries, universities",
+             "count": len(jobs) - len(bank_jobs_list)},
+            {"name": "Bangladesh Bank eRecruitment", "url": bank_jobs.JOBLIST,
+             "covers": "Government banks & financial institutions",
+             "count": len(bank_jobs_list)},
+        ],
         "organizations": len(orgs),
         "count": len(jobs),
+        "banks": len(bank_jobs_list),
+        "bankSource": {
+            "ok": bank_info.get("ok"),
+            "stale": bank_info.get("stale"),
+            "blocked": bank_info.get("blocked"),
+            "lastOk": bank_info.get("lastOk"),
+            "note": ("Bank vacancies are read from the Bangladesh Bank eRecruitment job list. "
+                     "That site blocks automated traffic on many networks, so the last "
+                     "successful read is reused when it refuses the crawler."),
+        },
         "qualificationNote": (
-            "Educational qualification is not published by the source API; it is inferred "
-            "from the post title and must be verified in the official circular PDF."
+            "Bank circulars publish their educational requirement in text. Teletalk circulars "
+            "do not — for those the qualification is inferred from the post title and must be "
+            "verified in the official circular PDF."
         ),
         "jobs": jobs,
         "_signature": signature,
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
-    LOG(f"wrote {OUT} ({len(jobs)} jobs, {failed} failures)")
-    print(json.dumps({"count": len(jobs), "failed": failed,
+    LOG(f"wrote {OUT} ({len(jobs)} jobs, {len(bank_jobs_list)} bank, {failed} failures)")
+    print(json.dumps({"count": len(jobs), "failed": failed, "banks": len(bank_jobs_list),
                       "changed": True, "out": str(OUT)}))
     return 0
 
