@@ -11,6 +11,11 @@ function evaluateJob(job, profile) {
   const checks = [];
   /* live circulars do not publish an exact qualification — it is inferred from the post title */
   const inferred = job.degreeSource === "inferred";
+  const ready = profile.__ready !== false;
+
+  const yoursText = (profile.degree || profile.major)
+    ? `${profile.degree || profile.major}${DEGREE_LABELS[profile.major] ? ` (${DEGREE_LABELS[profile.major]})` : ""}`
+    : "Not provided";
 
   /* ---------- 1. DEGREE / SUBJECT (hard) ---------- */
   const accepted = job.requiredDegrees || [];
@@ -22,8 +27,8 @@ function evaluateJob(job, profile) {
     ok: degreeOk,
     label: "Educational qualification",
     required: accepted.map(d => d === "All" ? "Any bachelor's degree" : (DEGREE_LABELS[d] || d)).join(" / "),
-    yours: `${profile.degree || profile.major} (${DEGREE_LABELS[profile.major] || profile.major})`,
-    failText: `This post asks for ${accepted.filter(d => d !== "All").join(" / ") || "a specific discipline"} ${inferred ? "(matched from the post title) " : ""}but your department is ${profile.major}. Open the circular PDF to confirm before you rule yourself out.`
+    yours: yoursText,
+    failText: `This post asks for ${accepted.filter(d => d !== "All").join(" / ") || "a specific discipline"} ${inferred ? "(matched from the post title) " : ""}but your department is ${profile.major || "not set"}. Open the circular PDF to confirm before you rule yourself out.`
   });
 
   /* ---------- 1b. EDUCATION LEVEL (published by bank circulars only) ---------- */
@@ -188,6 +193,15 @@ function evaluateJob(job, profile) {
   const PREF_KEYS = ["type", "grade", "location"];
   const prefOnly = status === "check" && softWarns.every(c => PREF_KEYS.includes(c.key));
 
+  /* No profile yet → never pretend we judged the visitor */
+  if (!ready) {
+    return {
+      status: "setup", score: 0, checks,
+      verdict: "Create your profile and we will tell you whether you qualify — degree, age limit, CGPA and experience are exactly what we compare.",
+      hardFail: null, softWarns: [], prefOnly: false
+    };
+  }
+
   let verdict;
   const inferredNote = inferred
     ? " The qualification shown is inferred from the post title — always confirm it in the official circular PDF."
@@ -208,6 +222,7 @@ function evaluateJob(job, profile) {
 /** Human readable status label */
 function statusLabel(status, ev) {
   if (status === "eligible") return "✅ Eligible";
+  if (status === "setup") return "📝 Set up profile";
   if (status === "check") return ev && ev.prefOnly ? "⚠️ Outside your preferences" : "⚠️ Check requirements";
   return "❌ Not Eligible";
 }
@@ -222,12 +237,53 @@ function toEnglishDigits(str) {
   return String(str).replace(/[০-৯]/g, d => BN_DIGITS[d]);
 }
 
+/* ---------- Bangladesh locations (divisions + districts) ----------
+   Circular titles are written in English, so these are the spellings we
+   match against. A few common alternatives are mapped to the canonical name. */
+const BD_AREAS = [
+  "Dhaka","Gazipur","Narayanganj","Narsingdi","Kishoreganj","Tangail","Manikganj","Munshiganj",
+  "Faridpur","Gopalganj","Madaripur","Shariatpur","Rajbari",
+  "Mymensingh","Jamalpur","Netrokona","Sherpur",
+  "Chattogram","Cumilla","Brahmanbaria","Chandpur","Feni","Lakshmipur","Noakhali","Cox's Bazar",
+  "Rangamati","Bandarban","Khagrachhari",
+  "Rajshahi","Bogura","Joypurhat","Naogaon","Natore","Chapainawabganj","Pabna","Sirajganj",
+  "Khulna","Bagerhat","Satkhira","Jashore","Jhenaidah","Magura","Narail","Kushtia","Chuadanga","Meherpur",
+  "Barishal","Patuakhali","Bhola","Pirozpur","Barguna","Jhalokathi",
+  "Sylhet","Habiganj","Moulvibazar","Sunamganj",
+  "Rangpur","Dinajpur","Thakurgaon","Panchagarh","Nilphamari","Lalmonirhat","Kurigram","Gaibandha"
+];
+const BD_AREA_ALIASES = {
+  bogra: "Bogura", chittagong: "Chattogram", comilla: "Cumilla",
+  barisal: "Barishal", jessore: "Jashore"
+};
+const BD_BN_AREAS = {
+  "ঢাকা": "Dhaka", "চট্টগ্রাম": "Chattogram", "খুলনা": "Khulna", "রাজশাহী": "Rajshahi",
+  "সিলেট": "Sylhet", "রংপুর": "Rangpur", "বরিশাল": "Barishal", "ময়মনসিংহ": "Mymensingh"
+};
+const BD_DIVISIONS = ["Dhaka","Chattogram","Rajshahi","Khulna","Barishal","Sylhet","Rangpur","Mymensingh"];
+
+const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const areaRe = name => new RegExp(`(^|[^a-z\u0980-\u09ff])${escRe(name)}([^a-z\u0980-\u09ff]|$)`, "i");
+
+/** @returns {{raw:string, value:string}|null} the location a query is asking for */
+function findAreaHit(text) {
+  const t = " " + text + " ";
+  for (const bn of Object.keys(BD_BN_AREAS)) {
+    if (t.includes(bn)) return { raw: bn, value: BD_BN_AREAS[bn] };
+  }
+  for (const a of BD_AREAS) if (areaRe(a).test(t)) return { raw: a, value: a };
+  for (const alias of Object.keys(BD_AREA_ALIASES)) {
+    if (areaRe(alias).test(t)) return { raw: alias, value: BD_AREA_ALIASES[alias] };
+  }
+  return null;
+}
+
 function parseSmartQuery(raw) {
   const q = toEnglishDigits(raw).toLowerCase();
   const out = {
     majors: [], grades: [], age: null, gender: null,
     relocate: null, keywords: [], deadlineDays: null, titleWords: [],
-    jobTypes: [], minLevel: null, sortHint: null
+    jobTypes: [], minLevel: null, sortHint: null, location: null
   };
 
   /* majors */
@@ -312,6 +368,11 @@ function parseSmartQuery(raw) {
   if (/ঢাকার বাইরে|outside dhaka|anywhere|বাইরে হলেও সমস্যা নেই|relocate|যেকোনো জায়গা/.test(q)) out.relocate = "yes";
   if (/শুধু ঢাকা|only dhaka|ঢাকায় চাই|no relocation/.test(q)) out.relocate = "no";
 
+  /* location — a district/division named in the query becomes the location
+     filter. Skipped when the person explicitly said they will relocate. */
+  const areaHit = out.relocate === "yes" ? null : findAreaHit(q);
+  if (areaHit) out.location = areaHit.value;
+
   /* deadline horizon */
   if (/next month|আগামী মাস/.test(q)) out.deadlineDays = 45;
   if (/this month|এ মাস/.test(q)) out.deadlineDays = 30;
@@ -346,6 +407,8 @@ function parseSmartQuery(raw) {
     .replace(/\b(?:বয়স|age)\D{0,6}\d{1,2}\b/g, " ")
     .replace(/\b\d{1,2}\s*(?:-|–)\s*\d{1,2}\b/g, " ")
     .replace(/\b\d{1,2}\s*(?:বছর|years?)\b/g, " ");
+  // the place name became a filter, so it must not also become a keyword
+  if (areaHit) text = text.replace(areaRe(areaHit.raw), " ");
 
   out.titleWords = text
     .replace(/[^\p{L}\p{M}\s]/gu, " ")   // keep letters (incl. Bangla combining marks) only

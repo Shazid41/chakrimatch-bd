@@ -1,9 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#0B63CE"/>
-  <rect x="12" y="22" width="40" height="28" rx="5" fill="#ffffff"/>
-  <rect x="12" y="22" width="40" height="9" rx="4" fill="#8FC0FF"/>
-  <rect x="25" y="16" width="14" height="9" rx="3" fill="#ffffff"/>
-  <rect x="25" y="17" width="14" height="7" rx="2.5" fill="#0B63CE"/>
-  <circle cx="32" cy="40" r="5" fill="#0B63CE"/>
-  <rect x="22" y="46" width="20" height="4" rx="2" fill="#0B63CE"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ChakriMatch BD">
+  <defs>
+    <linearGradient id="cmg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A8F63"/>
+      <stop offset="1" stop-color="#04352A"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#cmg)"/>
+  <path d="M15 33.5 L25.5 44 L47.5 21" fill="none" stroke="#FFFFFF" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="52" cy="52" r="6" fill="#F42A41"/>
 </svg>

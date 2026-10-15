@@ -10,29 +10,43 @@ const bank_jobs_URL = "https://erecruitment.bb.org.bd/onlineapp/joblist.php";
 const DEFAULT_PROFILE = {
   name: "",
   education: "Bachelor's",
-  degree: "B.Sc. in CSE",
-  major: "CSE",
-  cgpa: "3.50",
-  age: "24",
+  degree: "",
+  major: "",
+  cgpa: "",
+  age: "",
   gender: "male",
-  location: "Dhaka",
+  location: "",
   experience: "0",
   relocate: "yes",
-  skills: ["Programming", "Java", "Python", "Web Development", "Networking", "Database"],
-  grades: ["Grade 9", "Grade 10", "Grade 11", "Grade 12", "Grade 13", "Grade 14", "Grade 15", "Grade 16"],
-  jobTypes: ["BCS", "ICT Jobs", "Ministry", "Directorate", "Autonomous Organization", "Government Bank", "Non-Cadre"],
-  onlyCse: false
+  skills: [],
+  grades: [],
+  jobTypes: [],
+  __ready: false
 };
 
+/**
+ * Older builds shipped a sample CSE profile. If the stored copy is still that
+ * untouched sample, start fresh so nothing pretends to be the visitor's data.
+ */
+function migrateProfile(p) {
+  if (!p || typeof p !== "object") return structuredClone(DEFAULT_PROFILE);
+  const untouchedSample = !p.name && p.degree === "B.Sc. in CSE" && p.major === "CSE";
+  if (untouchedSample) return structuredClone(DEFAULT_PROFILE);
+  const out = { ...DEFAULT_PROFILE, ...p };
+  delete out.onlyCse;
+  if (out.__ready === undefined) out.__ready = true;   // they typed something in
+  return out;
+}
+
 const state = {
-  profile: load("cm_profile", DEFAULT_PROFILE),
+  profile: migrateProfile(load("cm_profile", DEFAULT_PROFILE)),
   jobs: JOBS.map(j => ({ ...j })),
   meta: { live: false, generatedAt: null, source: null, sourceUrl: null,
           organizations: SOURCES_COUNT, qualificationNote: "", sources: [], banks: 0,
           bankSource: null },
   saved: new Set(load("cm_saved", [])),
   notifs: load("cm_notifs", []),
-  filters: { edu: [], type: [], grade: [] },
+  filters: { edu: [], type: [], grade: [], location: "" },
   status: "all",
   sort: "recent",           // recent | deadline | match
   page: 1,
@@ -40,11 +54,17 @@ const state = {
   showAllBanks: false,
   query: null,          // parsed smart query
   queryText: "",
+  locFromQuery: false,  // location came from a search string, not the dropdown
   incomingQueue: INCOMING_JOBS.map(j => ({ ...j })),
   lastScan: Date.now(),
   scanning: false,
   admin: sessionStorage.getItem("cm_admin") === "1"
 };
+
+const profileReady = () => state.profile.__ready !== false;
+
+/* the whole update panel is the owner's — hide it before first paint */
+document.body.classList.toggle("is-admin", state.admin);
 
 /* ============================================================
    LIVE DATA — data/jobs.json is rebuilt by scraper/collect.py
@@ -116,8 +136,8 @@ function renderSourceInfo() {
   const bankCount = state.jobs.filter(j => j.isBank).length;
   if (line) {
     line.innerHTML = state.meta.live
-      ? `🟢 Live: <b>${state.meta.organizations} organisations</b> + ${bankCount} bank posts · ${state.jobs.length} open circulars · updated ${esc(generatedLabel())}`
-      : `🟡 Offline demo mode — open through a web server for live circulars`;
+      ? `${state.jobs.length} open circulars · ${bankCount} bank vacancies · updated ${esc(generatedLabel())}`
+      : `🟡 Offline mode — showing the bundled sample circulars`;
   }
   const src = $("#sourceLine");
   if (src) {
@@ -129,9 +149,9 @@ function renderSourceInfo() {
   }
   const pipe = $("#pipeSources");
   if (pipe) pipe.textContent = `${state.meta.organizations + (bankCount ? 1 : 0)} sources`;
-  if ($("#statSources")) $("#statSources").textContent = state.meta.organizations;
+  if ($("#statBanks")) $("#statBanks").textContent = bankCount;
 
-  /* bank freshness note (the BB site blocks bots, so the read can be a snapshot) */
+  /* bank freshness note — worded for visitors: say the data may be older, not why */
   const bn = $("#bankNote");
   if (bn) {
     const bs = state.meta.bankSource;
@@ -139,9 +159,9 @@ function renderSourceInfo() {
     else if (bs && bs.stale) {
       const when = bs.lastOk
         ? new Date(bs.lastOk).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
-        : "an earlier run";
+        : "an earlier check";
       bn.hidden = false;
-      bn.innerHTML = `⚠️ Bangladesh Bank blocked today's automated read, so these ${bankCount} vacancies are the last successful snapshot (${esc(when)}). Verify each one on <a href="${esc(bank_jobs_URL)}" target="_blank" rel="noopener">erecruitment.bb.org.bd ↗</a>.`;
+      bn.innerHTML = `⚠️ এই ${bankCount}টি পদের তথ্য সর্বশেষ যাচাই হয়েছে ${esc(when)}-এ। আবেদনের আগে অফিসিয়াল সাইটে খুঁজে দেখুন — <a href="${esc(bank_jobs_URL)}" target="_blank" rel="noopener">erecruitment.bb.org.bd ↗</a>`;
     } else { bn.hidden = true; }
   }
 }
@@ -252,14 +272,17 @@ function fmtDate(dateStr) {
 }
 function agoLabel(ms) {
   const m = Math.floor(ms / 60000);
-  if (m < 1) return "Last scan: just now";
-  if (m < 60) return `Last scan: ${m} minute${m > 1 ? "s" : ""} ago`;
-  return `Last scan: ${Math.floor(m / 60)} hour${Math.floor(m / 60) > 1 ? "s" : ""} ago`;
+  if (m < 1) return "Updated just now";
+  if (m < 60) return `Updated ${m} minute${m > 1 ? "s" : ""} ago`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `Updated ${h} hour${h > 1 ? "s" : ""} ago`;
+  return `Updated ${Math.floor(h / 24)} day${Math.floor(h / 24) > 1 ? "s" : ""} ago`;
 }
 const STATUS_META = {
   eligible: { cls: "is-eligible", badge: "match-eligible", label: "✅ Eligible" },
   check: { cls: "is-check", badge: "match-check", label: "⚠️ Check Requirements" },
-  not: { cls: "is-not", badge: "match-not", label: "❌ Not Eligible" }
+  not: { cls: "is-not", badge: "match-not", label: "❌ Not Eligible" },
+  setup: { cls: "is-setup", badge: "match-setup", label: "📝 Set up profile" }
 };
 
 /* ============================================================
@@ -276,12 +299,12 @@ function renderForm() {
   $("#fLocation").value = p.location;
   $("#fExperience").value = p.experience;
   $("#fRelocate").value = p.relocate;
-  $("#fOnlyCse").checked = !!p.onlyCse;
 
-  // major select
-  $("#fMajor").innerHTML = MAJORS
-    .map(m => `<option value="${m}" ${m === p.major ? "selected" : ""}>${m} — ${DEGREE_LABELS[m]}</option>`)
-    .join("");
+  // major select — always offers a blank option so nobody inherits a sample
+  $("#fMajor").innerHTML =
+    `<option value="">— Select your department —</option>` +
+    MAJORS.map(m => `<option value="${m}" ${m === p.major ? "selected" : ""}>${m} — ${DEGREE_LABELS[m]}</option>`)
+      .join("");
 
   renderSkills();
   renderCheckboxes("#jobTypeChecks", JOB_TYPES, p.jobTypes, "type");
@@ -311,7 +334,8 @@ function readForm() {
   p.location = $("#fLocation").value.trim();
   p.experience = $("#fExperience").value;
   p.relocate = $("#fRelocate").value;
-  p.onlyCse = $("#fOnlyCse").checked;
+  /* they told us something real → the verdicts below are meaningful from now on */
+  p.__ready = !!(p.major || p.degree || p.age || p.cgpa || p.name);
   save("cm_profile", p);
   return p;
 }
@@ -345,6 +369,38 @@ function renderFilters() {
   buildFilterGroup("#eduFilter", EDU_GROUPS, "edu", (j, o) => jobMatchesEdu(j, o));
   buildFilterGroup("#typeFilter", JOB_TYPES, "type", (j, o) => j.type === o || j.edu === o);
   buildFilterGroup("#gradeFilter", GRADES, "grade", (j, o) => j.grade === o);
+}
+
+/** Location picker in the search bar — divisions first, then every district. */
+function renderLocations() {
+  const sel = $("#locSelect");
+  if (!sel) return;
+  const cur = state.filters.location;
+  const groups = [
+    ["All Bangladesh", [""]],
+    ["Divisions", BD_DIVISIONS],
+    ["Districts", BD_AREAS.filter(a => !BD_DIVISIONS.includes(a))]
+  ];
+  sel.innerHTML = groups.map(([label, areas]) =>
+    `<optgroup label="${label}">` +
+    areas.map(a =>
+      `<option value="${esc(a)}" ${a === cur ? "selected" : ""}>${a === "" ? "Anywhere in Bangladesh" : esc(a)}</option>`
+    ).join("") + `</optgroup>`
+  ).join("");
+  sel.classList.toggle("on", !!cur);
+}
+
+function activeFilterCount() {
+  return state.filters.edu.length + state.filters.type.length + state.filters.grade.length +
+         (state.filters.location ? 1 : 0);
+}
+
+function clearAllFilters() {
+  state.filters = { edu: [], type: [], grade: [], location: "" };
+  state.locFromQuery = false;
+  state.page = 1;
+  renderLocations();
+  renderFilters();
 }
 
 function renderCategories() {
@@ -398,14 +454,12 @@ function visibleJobs() {
 }
 
 function buildRows(profile, useKeywords) {
+  const loc = (state.filters.location || "").toLowerCase();
+  const placeOf = job => [job.title, job.org, job.bank, job.location]
+    .filter(Boolean).join(" ").toLowerCase();
   return state.jobs
     .filter(job => {
-      // 1) CSE-only preference
-      if (state.profile.onlyCse) {
-        const cseish = job.requiredDegrees.some(d => ["CSE", "ICT", "SWE", "IT", "General", "All"].includes(d));
-        if (!cseish) return false;
-      }
-      // 2) sidebar filters
+      // 1) sidebar filters
       if (state.filters.edu.length && !state.filters.edu.some(o => jobMatchesEdu(job, o))) return false;
       if (state.filters.type.length && !state.filters.type.some(o => job.type === o || job.edu === o)) return false;
       if (state.filters.grade.length && !state.filters.grade.includes(job.grade)) return false;
@@ -438,7 +492,7 @@ function buildRows(profile, useKeywords) {
       // 4) closed jobs hidden
       return daysLeft(job.deadline) >= 0;
     })
-    .map(job => ({ job, ev: evaluateJob(job, profile) }));
+    .map(job => ({ job, ev: evaluateJob(job, profile), mentions: !!loc && placeOf(job).includes(loc) }));
 }
 
 function statusFilter(rows) {
@@ -448,13 +502,30 @@ function statusFilter(rows) {
 }
 
 function sortRows(rows) {
-  const order = { eligible: 0, check: 1, not: 2 };
+  const order = { setup: 0, eligible: 1, check: 2, not: 3 };
   const out = rows.slice();
-  if (state.sort === "deadline") out.sort((a, b) => new Date(a.job.deadline) - new Date(b.job.deadline));
-  else if (state.sort === "match") out.sort((a, b) => b.ev.score - a.ev.score || order[a.ev.status] - order[b.ev.status]);
-  else out.sort((a, b) => (new Date(b.job.posted) - new Date(a.job.posted)) ||
-                          (new Date(a.job.deadline) - new Date(b.job.deadline)));
+  const byMode = state.sort === "deadline"
+    ? (a, b) => new Date(a.job.deadline) - new Date(b.job.deadline)
+    : state.sort === "match"
+      ? (a, b) => b.ev.score - a.ev.score || (order[a.ev.status] ?? 9) - (order[b.ev.status] ?? 9)
+      : (a, b) => (new Date(b.job.posted) - new Date(a.job.posted)) ||
+                  (new Date(a.job.deadline) - new Date(b.job.deadline));
+  /* a picked location floats the circulars that actually name it to the top;
+     every government circular here is open nationwide, so nothing is hidden */
+  if (state.filters.location) {
+    out.sort((a, b) => (b.mentions ? 1 : 0) - (a.mentions ? 1 : 0) || byMode(a, b));
+  } else {
+    out.sort(byMode);
+  }
   return out;
+}
+
+/** How many live circulars actually name the selected place. */
+function mentionsCount(place) {
+  if (!place) return 0;
+  const p = place.toLowerCase();
+  return state.jobs.filter(j => [j.title, j.org, j.bank, j.location]
+    .filter(Boolean).join(" ").toLowerCase().includes(p)).length;
 }
 
 /* kept for older call sites */
@@ -487,18 +558,19 @@ function whyPanelHTML(job, ev) {
 
   return `
     <div class="why-panel" id="why-${job.id}" hidden>
-      <h5>ℹ️ ${heading}</h5>
+      <h3>ℹ️ ${heading}</h3>
       <ul class="why-list">${items}</ul>
       <div class="why-verdict"><b>Verdict:</b> ${esc(ev.verdict)}</div>
     </div>`;
 }
 
 function jobCardHTML(job, ev) {
-  const meta = STATUS_META[ev.status];
+  const meta = STATUS_META[ev.status] || STATUS_META.check;
   const saved = state.saved.has(job.id);
   const d = daysLeft(job.deadline);
-  const statusLabel2 = ev.prefOnly ? "⚠️ Your preference" : meta.label;
-  const statusCls = ev.prefOnly ? "match-check" : meta.badge;
+  const isSetup = ev.status === "setup";
+  const statusLabel2 = !isSetup && ev.prefOnly ? "⚠️ Your preference" : meta.label;
+  const statusCls = !isSetup && ev.prefOnly ? "match-check" : meta.badge;
   return `
   <article class="job-card ${meta.cls} ${job.isBank ? "job-card-bank" : ""}" data-id="${job.id}">
     <div class="job-main">
@@ -515,26 +587,46 @@ function jobCardHTML(job, ev) {
         ${job.expYears ? `<span class="tag"> exp ${job.expYears}y</span>` : ""}
         ${job.isLive ? `<span class="tag tag-live">● LIVE</span>` : ""}
       </div>
-      <button class="why-btn" data-why="${job.id}">ℹ️ Why ${ev.status === "not" ? "not " : ""}eligible? ▾</button>
+      ${isSetup
+        ? `<button class="why-btn" data-open-profile>📝 Set up profile to check this →</button>`
+        : `<button class="why-btn" data-why="${job.id}">ℹ️ Why ${ev.status === "not" ? "not " : ""}eligible? ▾</button>`}
     </div>
     <div class="job-deadline">${deadlineCell(job)}</div>
     <div class="job-match">
       <span class="match-badge ${statusCls}">${statusLabel2}</span>
-      <span class="match-score">${ev.score}% profile match${d <= 3 ? " · closing!" : ""}</span>
+      <span class="match-score">${isSetup ? "profile not set" : `${ev.score}% profile match${d <= 3 ? " · closing!" : ""}`}</span>
     </div>
     <div class="job-actions">
       <a class="btn btn-outline" href="${esc(job.pdfUrl)}" target="_blank" rel="noopener">📄 Circular</a>
       <a class="btn btn-accent" href="${esc(job.applyUrl)}" target="_blank" rel="noopener">Apply ↗</a>
       <button class="save-btn ${saved ? "saved" : ""}" data-save="${job.id}" title="Save job">${saved ? "🔖" : "🔖+"}</button>
     </div>
-    ${whyPanelHTML(job, ev)}
+    ${isSetup ? "" : whyPanelHTML(job, ev)}
   </article>`;
 }
 
 function renderResults() {
+  const ready = profileReady();
+  if (!ready && ["eligible", "check", "not"].includes(state.status)) state.status = "all";
+
   const all = statusFilter(visibleJobs());
-  const c = { eligible: 0, check: 0, not: 0 };
-  visibleJobs().forEach(r => c[r.ev.status]++);
+  const c = { eligible: 0, check: 0, not: 0, setup: 0 };
+  visibleJobs().forEach(r => { if (c[r.ev.status] !== undefined) c[r.ev.status]++; });
+
+  /* verdict chips make no sense before a profile exists */
+  ["eligible", "check", "not"].forEach(s => {
+    const b = document.querySelector(`#statusChips [data-status="${s}"]`);
+    if (b) b.hidden = !ready;
+  });
+  $$("#statusChips .chip").forEach(b => b.classList.toggle("active", b.dataset.status === state.status));
+  const banner = $("#setupBanner");
+  if (banner) banner.hidden = ready;
+
+  const ft = $("#filterToggle");
+  if (ft) {
+    const n = activeFilterCount();
+    ft.textContent = n ? `☰ Filters (${n})` : "☰ Filters";
+  }
 
   /* ---- bank vacancies get their own strip at the top ---- */
   const bankRows = sortRows(all.filter(r => r.job.isBank));
@@ -544,7 +636,9 @@ function renderResults() {
   if (strip) {
     if (!bankRows.length) {
       strip.hidden = true;
-      strip.innerHTML = "";
+      /* only empty the children — wiping #bankStrip itself would destroy them */
+      const bl = $("#bankList"); if (bl) bl.innerHTML = "";
+      const bm = $("#bankMore"); if (bm) bm.innerHTML = "";
     } else {
       strip.hidden = false;
       const shown = state.showAllBanks ? bankRows : bankRows.slice(0, 4);
@@ -608,10 +702,11 @@ function renderResults() {
   const next = all.filter(r => r.ev.status === "eligible").sort((a, b) => new Date(a.job.deadline) - new Date(b.job.deadline))[0];
   $("#closestDeadline").innerHTML = next
     ? `${fmtDate(next.job.deadline)} — <b>${esc(next.job.title)}</b><span class="dl-left ${daysLeft(next.job.deadline) <= 7 ? "urgent" : ""}">${daysLeft(next.job.deadline)} days left</span>`
-    : "No eligible job right now — update your profile.";
+    : ready ? "No eligible job right now — update your profile."
+            : "Profile তৈরি করলে এখানে সবচেয়ে কাছের deadline দেখাবে।";
 
   renderHeroJobs();
-  renderStats();
+  renderStats(c);
 }
 
 function renderHeroJobs() {
@@ -619,17 +714,36 @@ function renderHeroJobs() {
   $("#heroJobs").innerHTML = rows.length
     ? rows.map(r => `<li><span><span class="mj-title">${esc(r.job.title)}</span><span class="mj-org">${esc(r.job.org)}</span></span>
         <span class="mg-badge mg-eligible">✅ ${r.ev.score}%</span></li>`).join("")
-    : `<li><span class="mj-org">Build your profile to see matching jobs here →</span></li>`;
+    : `<li><span class="mj-org">${profileReady() ? "No matching job yet — try a different search" : "Profile তৈরি করলে এখানে আপনার matching jobs দেখাবে"}</span></li>`;
 
   const p = state.profile;
-  $("#heroProfileLine").textContent = `${p.degree} · CGPA ${p.cgpa || "—"} · Age ${p.age || "—"} · ${p.location || "—"}`;
+  const ready = profileReady();
+  const degreeEl = $("#heroProfileDegree");
+  const lineEl = $("#heroProfileLine");
+  const avatarEl = $("#heroAvatar");
+  const footEl = $("#heroFoot");
+  if (degreeEl) degreeEl.textContent = ready ? (p.degree || p.major || "Your profile") : "No profile yet";
+  if (lineEl) lineEl.textContent = ready
+    ? [p.cgpa ? `CGPA ${p.cgpa}` : "", p.age ? `Age ${p.age}` : "", p.location || ""].filter(Boolean).join(" · ") || "Add CGPA, age & location for a sharper match"
+    : "যোগ্যতা দিলেই এখানে আপনার match দেখাবে";
+  if (avatarEl) {
+    const initials = (p.name || p.major || p.degree || "?").trim().slice(0, 2).toUpperCase();
+    avatarEl.textContent = initials;
+  }
+  if (footEl) {
+    footEl.textContent = ready ? "See all matching jobs →" : "📝 Set up your profile →";
+    footEl.dataset.mode = ready ? "results" : "profile";
+  }
 }
 
-function renderStats() {
-  $("#statSources").textContent = state.meta.organizations || SOURCES_COUNT;
+function renderStats(c) {
+  const counts = c || { eligible: 0 };
   $("#statCirculars").textContent = state.jobs.length;
+  const bankCount = state.jobs.filter(j => j.isBank).length;
+  if ($("#statBanks")) $("#statBanks").textContent = bankCount;
   const weekAgo = new Date(TODAY.getTime() - 7 * 86400000);
   $("#statNew").textContent = state.jobs.filter(j => new Date(j.posted) >= weekAgo).length;
+  if ($("#statEligible")) $("#statEligible").textContent = counts.eligible || 0;
 }
 
 /* ============================================================
@@ -639,7 +753,10 @@ function openModal(id) {
   const job = state.jobs.find(j => j.id === id);
   if (!job) return;
   const ev = evaluateJob(job, currentProfile());
-  const meta = STATUS_META[ev.status];
+  const meta = STATUS_META[ev.status] || STATUS_META.check;
+  const isSetup = ev.status === "setup";
+  const badgeCls = !isSetup && ev.prefOnly ? "match-check" : meta.badge;
+  const badgeTxt = !isSetup && ev.prefOnly ? "⚠️ Your preference" : meta.label;
   const saved = state.saved.has(job.id);
   const gradePublished = !!job.grade && job.grade !== "Other";
   const salaryLine = job.salary ? esc(job.salary)
@@ -657,11 +774,11 @@ function openModal(id) {
 
   $("#modalBody").innerHTML = `
     <div class="m-badges">
-      <span class="match-badge ${ev.prefOnly ? "match-check" : meta.badge}">${ev.prefOnly ? "⚠️ Your preference" : meta.label}</span>
+      <span class="match-badge ${badgeCls}">${badgeTxt}</span>
       ${gradePublished ? `<span class="tag grade">${esc(job.grade)}</span>` : ""}
       <span class="tag">🎓 ${esc(job.edu || "Any degree")}</span>
       <span class="tag">${esc(job.type)}</span>
-      <span class="tag">${ev.score}% profile match</span>
+      <span class="tag">${isSetup ? "profile not set" : ev.score + "% profile match"}</span>
       ${job.degreeSource === "official" ? `<span class="tag tag-inferred" style="background:#ECFDF3;border-color:#A6F4C5;color:#027A48">✔ requirement published by the source</span>` : ""}
     </div>
     <h2>${esc(job.title)}</h2>
@@ -685,12 +802,12 @@ function openModal(id) {
     </div>
 
     <div class="m-section">
-      <h4>🎓 Educational qualification</h4>
+      <h3>🎓 Educational qualification</h3>
       <p>${esc(job.degreeText)}</p>
     </div>
 
     <div class="m-section">
-      <h4>✅ Eligibility check — what we compared</h4>
+      <h3>${isSetup ? "📝 Eligibility check" : "✅ Eligibility check — what we compared"}</h3>
       <div class="m-why">
         <ul class="why-list">
           ${ev.checks.map(c => {
@@ -705,20 +822,20 @@ function openModal(id) {
     </div>
 
     <div class="m-section">
-      <h4>📑 Required documents</h4>
+      <h3>📑 Required documents</h3>
       ${docsList}
     </div>
 
     <div class="m-section">
-      <h4>🔎 Data source</h4>
-      <p class="m-muted">Collected from <a href="${esc(job.detailUrl)}" target="_blank" rel="noopener">${esc(job.source || "the official listing")} ↗</a>
+      <h3>🔗 Official listing</h3>
+      <p class="m-muted">পদটি প্রকাশ হয়েছে <a href="${esc(job.detailUrl)}" target="_blank" rel="noopener">${esc(job.source || "the official listing")} ↗</a>
       ${job.posted ? ` · posted ${fmtDate(job.posted)}` : ""}
       ${job.viewCount ? ` · ${Number(job.viewCount).toLocaleString("en-GB")} views` : ""}.</p>
-      ${job.degreeSource === "inferred" ? `<p class="m-muted">* Qualification, grade and salary are <b>not published</b> by the source summary — the qualification shown above is inferred from the post title. Always confirm in the circular PDF.</p>` : ""}
-      ${job.degreeSource === "official" ? `<p class="m-muted">The qualification and fee above were read from the source's own job list — they are not guesses. The circular PDF remains the final word.</p>` : ""}
+      ${job.degreeSource === "inferred" ? `<p class="m-muted">* Qualification, grade and salary are <b>not published</b> in the listing — the qualification shown above is inferred from the post title. Always confirm in the circular PDF.</p>` : ""}
+      ${job.degreeSource === "official" ? `<p class="m-muted">The qualification and fee above were read from the official job list itself — they are not guesses. The circular PDF remains the final word.</p>` : ""}
     </div>
 
-    ${job.note ? `<div class="m-section"><h4>⚠️ Note</h4><p>${esc(job.note)}</p></div>` : ""}
+    ${job.note ? `<div class="m-section"><h3>⚠️ Note</h3><p>${esc(job.note)}</p></div>` : ""}
 
     <div class="m-actions">
       <a class="btn btn-accent btn-lg" href="${esc(job.applyUrl)}" target="_blank" rel="noopener">Apply Now (official website) ↗</a>
@@ -726,7 +843,7 @@ function openModal(id) {
       <a class="btn btn-ghost" href="${esc(job.detailUrl)}" target="_blank" rel="noopener">🔗 Official listing</a>
       <button class="btn btn-ghost" data-save="${job.id}">${saved ? "🔖 Saved" : "🔖 Save job"}</button>
     </div>
-    <p style="margin-top:14px;font-size:13px;color:var(--ink-3)">🛡️ ChakriMatch does not submit applications — “Apply Now” opens the official source only.</p>
+    <p style="margin-top:14px;font-size:13px;color:var(--ink-3)">🛡️ ChakriMatch does not submit applications — “Apply Now” opens the official website only.</p>
   `;
   $("#modalBackdrop").hidden = false;
   document.body.style.overflow = "hidden";
@@ -756,7 +873,7 @@ function pushNotif(title, body) {
 function renderNotifs(flash) {
   const list = $("#notifList");
   if (!state.notifs.length) {
-    list.innerHTML = `<li class="notif-empty">No notifications yet. Run the crawler or save a job to get alerts.</li>`;
+    list.innerHTML = `<li class="notif-empty">নতুন circular এলে এখানে দেখাবে। আপাতত কোনো alert নেই — 🔖 save করলেও খুঁজে পাবেন।</li>`;
   } else {
     list.innerHTML = state.notifs.map(n => `
       <li><span>🔔</span><span><b>${esc(n.title)}</b><span>${esc(n.body)}</span>
@@ -837,7 +954,7 @@ async function finishScan() {
 
     pushNotif("New Job Alert", `“${nextJob.title}” at ${nextJob.org} — deadline ${fmtDate(nextJob.deadline)}.`);
     if ($("#optSite").checked) {
-      toast("🔔 New Job Alert", `A new government job matching your ${state.profile.major} background has been published: ${nextJob.title}`, "alert");
+      toast("🔔 New Job Alert", `A new circular matching your profile has been published: ${nextJob.title}`, "alert");
     }
     if ($("#optEmail").checked) {
       toast("📧 Email queued", `Alert for “${nextJob.title}” → ${$("#emailInput").value || "your email"}`, "alert");
@@ -878,6 +995,17 @@ function runSmartSearch() {
     state.sort = state.query.sortHint;
     if ($("#sortSelect")) $("#sortSelect").value = state.sort;
   }
+  // a district named inside the query becomes the location focus
+  const qLoc = (state.query && state.query.location) || "";
+  if (qLoc) {
+    state.filters.location = qLoc;
+    state.locFromQuery = true;
+  } else if (state.locFromQuery) {
+    state.filters.location = "";
+    state.locFromQuery = false;
+  }
+  const selEl = $("#locSelect");
+  if (selEl) { selEl.value = state.filters.location; selEl.classList.toggle("on", !!state.filters.location); }
   renderParsed();
   renderResults();
   if (raw) {
@@ -890,8 +1018,18 @@ function runSmartSearch() {
 function renderParsed() {
   const box = $("#parsedFilters");
   const q = state.query;
-  if (!q) { box.hidden = true; box.innerHTML = ""; return; }
   const tags = [];
+  if (state.filters.location) {
+    const n = mentionsCount(state.filters.location);
+    tags.push(["📍 Location", n
+      ? `${state.filters.location} — ${n} circular${n === 1 ? "" : "s"} name it, shown first`
+      : `${state.filters.location} — no circular names it, all are open nationwide`]);
+  }
+  if (!q) {
+    box.hidden = tags.length === 0;
+    box.innerHTML = tags.map(([k, v]) => `<span class="parsed-tag">${k}: <b>${esc(v)}</b></span>`).join("");
+    return;
+  }
   if (q.majors.length) tags.push(["Degree", q.majors.join(", ")]);
   if (q.jobTypes.length) tags.push(["Job type", q.jobTypes.join(", ")]);
   if (q.minLevel) {
@@ -907,7 +1045,7 @@ function renderParsed() {
       : `${q.grades.map(g => g.replace("Grade ", "")).join(", ")} — not published in live circulars, ignored`]);
   }
   if (q.gender) tags.push(["Gender", q.gender === "female" ? "Female" : "Male"]);
-  if (q.relocate) tags.push(["Location", q.relocate === "yes" ? "Anywhere OK" : "Own location only"]);
+  if (q.relocate) tags.push(["Relocation", q.relocate === "yes" ? "Anywhere OK" : "Own location only"]);
   if (q.deadlineDays) tags.push(["Deadline", `within ${q.deadlineDays} days`]);
   if (q.sortHint) tags.push(["Order", q.sortHint === "deadline" ? "Ending soonest first" : "Newest first"]);
   if (q.titleWords.length) tags.push(["Keywords", q.titleWords.slice(0, 5).join(", ")]);
@@ -918,12 +1056,42 @@ function renderParsed() {
 }
 
 /* ============================================================
+   PROFILE SHEET — the profile lives behind the menu, not on the page
+   ============================================================ */
+function openProfile() {
+  const s = $("#profileSheet");
+  if (!s) return;
+  s.hidden = false;
+  document.body.style.overflow = "hidden";
+  $("#mainNav").classList.remove("open");
+  renderForm();
+}
+function closeProfile() {
+  const s = $("#profileSheet");
+  if (!s || s.hidden) return;
+  s.hidden = true;
+  if ($("#modalBackdrop").hidden) document.body.style.overflow = "";
+}
+
+/* ============================================================
    EVENTS
    ============================================================ */
 function bindEvents() {
   // nav
   $("#hamburger").addEventListener("click", () => $("#mainNav").classList.toggle("open"));
   $$(".nav-link").forEach(a => a.addEventListener("click", () => $("#mainNav").classList.remove("open")));
+
+  // ---- profile opens from the menu, hero, footer and every CTA ----
+  document.querySelectorAll("[data-open-profile]").forEach(el => {
+    el.addEventListener("click", e => { e.preventDefault(); openProfile(); });
+  });
+  $("#profileClose").addEventListener("click", closeProfile);
+  $("#profileSheet").addEventListener("click", e => { if (e.target === $("#profileSheet")) closeProfile(); });
+  $$("[data-close-profile]").forEach(el => el.addEventListener("click", () => setTimeout(closeProfile, 0)));
+  const heroFoot = $("#heroFoot");
+  if (heroFoot) heroFoot.addEventListener("click", e => {
+    if (heroFoot.dataset.mode === "profile") { e.preventDefault(); openProfile(); }
+  });
 
   // notifications panel
   $("#bellBtn").addEventListener("click", e => {
@@ -940,6 +1108,7 @@ function bindEvents() {
   $("#profileForm").addEventListener("submit", e => {
     e.preventDefault();
     readForm();
+    closeProfile();
     renderResults();
     toast("🔎 Matching complete", `Found ${visibleJobs().length} circulars — ${$("#nEligible").textContent} fully eligible for you.`);
     document.getElementById("results").scrollIntoView({ behavior: "smooth" });
@@ -950,7 +1119,7 @@ function bindEvents() {
     state.profile = structuredClone(DEFAULT_PROFILE);
     save("cm_profile", state.profile);
     renderForm(); renderResults();
-    toast("Profile reset", "Loaded the sample CSE profile again.");
+    toast("Profile cleared", "Start fresh — enter your own qualification.");
   });
 
   // skills
@@ -999,9 +1168,32 @@ function bindEvents() {
     renderResults();
   });
   $("#clearFilters").addEventListener("click", () => {
-    state.filters = { edu: [], type: [], grade: [] };
+    clearAllFilters();
+    renderResults();
+  });
+
+  // location picker
+  const locSel = $("#locSelect");
+  if (locSel) locSel.addEventListener("change", e => {
+    state.filters.location = e.target.value;
+    state.locFromQuery = false;
     state.page = 1;
-    renderFilters(); renderResults();
+    e.target.classList.toggle("on", !!e.target.value);
+    renderParsed(); renderResults();
+    if (e.target.value) {
+      const n = mentionsCount(e.target.value);
+      toast(`📍 ${e.target.value}`, n
+        ? `${n} circular-এ এই জেলার নাম আছে — সেগুলো আগে দেখানো হচ্ছে। বাকিগুলো সারা দেশে খোলা।`
+        : `কোনো circular-এ এইজেলার নাম নেই — সবগুলো সারা দেশে খোলা, তাই তালিকা অপরিবর্তিত।`);
+    }
+  });
+
+  // filters collapse behind a single button on small screens
+  const filterToggle = $("#filterToggle");
+  if (filterToggle) filterToggle.addEventListener("click", () => {
+    const open = $("#filters").classList.toggle("open");
+    filterToggle.setAttribute("aria-expanded", String(open));
+    if (open) $("#filters").scrollIntoView({ behavior: "smooth", block: "nearest" });
   });
 
   // status chips + sort
@@ -1038,6 +1230,9 @@ function bindEvents() {
 
   // results interactions (delegated) — main list AND the bank strip
   const cardClick = e => {
+    // a card rendered before the profile exists sends the visitor to the form
+    const openProfileBtn = e.target.closest("[data-open-profile]");
+    if (openProfileBtn) { e.preventDefault(); openProfile(); return; }
     const whyBtn = e.target.closest("[data-why]");
     if (whyBtn) {
       const panel = document.getElementById("why-" + whyBtn.dataset.why);
@@ -1055,11 +1250,11 @@ function bindEvents() {
   if (bankList) bankList.addEventListener("click", cardClick);
 
   $("#emptyReset").addEventListener("click", () => {
-    state.filters = { edu: [], type: [], grade: [] };
+    clearAllFilters();
     state.status = "all"; state.query = null; state.page = 1;
     $("#smartQuery").value = "";
     $$("#statusChips .chip").forEach(c => c.classList.toggle("active", c.dataset.status === "all"));
-    renderParsed(); renderFilters(); renderResults();
+    renderParsed(); renderResults();
   });
 
   // smart search
@@ -1082,18 +1277,52 @@ function bindEvents() {
     toast("Filter applied", `${key === "edu" ? "Education" : key === "type" ? "Job type" : "Grade"}: ${val}`);
   });
 
-  // crawler
+  // refresh — the owner sees the full pipeline, visitors just get a fresh list
   $("#runPipelineBtn").addEventListener("click", () => runPipeline(true));
-  $("#scanNowBtn").addEventListener("click", () => {
-    document.getElementById("pipeline").scrollIntoView({ behavior: "smooth" });
-    runPipeline(true);
+  $("#scanNowBtn").addEventListener("click", async () => {
+    const btn = $("#scanNowBtn");
+    if (btn.disabled) return;
+    if (state.admin) { runPipeline(true); return; }
+    btn.disabled = true;
+    const oldLabel = btn.textContent;
+    btn.textContent = "⏳ Checking…";
+    state.lastScan = Date.now();
+    const line = $("#lastScan");
+    if (line) line.textContent = agoLabel(0);
+    try {
+      if (state.meta.live) {
+        const added = await refreshLiveData();
+        renderSourceInfo(); renderFilters(); renderCategories(); renderResults();
+        if (added.length) {
+          added.forEach(j => pushNotif("New Job Alert", `“${j.title}” at ${j.org} — deadline ${fmtDate(j.deadline)}.`));
+          toast("✅ New circulars found", `${added.length} new circular${added.length > 1 ? "s" : ""} added.`, "alert");
+        } else {
+          toast("✅ Up to date", `No new circular since ${generatedLabel()}.`);
+        }
+      } else {
+        toast("🟡 Offline mode", "Live data unavailable — showing the bundled sample circulars.");
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = oldLabel;
+    }
+  });
+
+  // owner sign-in entry point (kept out of the way of ordinary visitors)
+  const ownerToggle = $("#ownerToggle");
+  if (ownerToggle) ownerToggle.addEventListener("click", () => {
+    const box = $("#adminBox");
+    box.hidden = !box.hidden;
+    ownerToggle.setAttribute("aria-expanded", String(!box.hidden));
+    if (!box.hidden && $("#adminEmail")) $("#adminEmail").focus();
   });
 
   // alerts
   $("#testAlertBtn").addEventListener("click", () => {
     const job = visibleJobs().find(r => r.ev.status === "eligible")?.job || state.jobs[0];
-    pushNotif("New Job Alert", `A new government job matching your ${state.profile.major} background: ${job.title}`);
-    toast("🔔 New Job Alert", `A new government job matching your ${state.profile.major} background has been published.`, "alert");
+    const who = state.profile.major || "your qualification";
+    pushNotif("New Job Alert", `A new circular matching ${who}: ${job.title}`);
+    toast("🔔 New Job Alert", `A new circular matching ${who} has been published.`, "alert");
     $("#alertSampleJob").innerHTML = `<b>${esc(job.title)}</b> — ${esc(job.org)} · Deadline: ${fmtDate(job.deadline)}`;
   });
   $("#optEmail").addEventListener("change", e => toast("Email alerts", e.target.checked ? "Enabled — add your email address below." : "Disabled."));
@@ -1102,7 +1331,7 @@ function bindEvents() {
   // modal
   $("#modalClose").addEventListener("click", closeModal);
   $("#modalBackdrop").addEventListener("click", e => { if (e.target === $("#modalBackdrop")) closeModal(); });
-  document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { closeModal(); closeProfile(); } });
   $("#modalBody").addEventListener("click", e => {
     const s = e.target.closest("[data-save]");
     if (s) { toggleSave(s.dataset.save); openModal(s.dataset.save); renderResults(); }
@@ -1139,6 +1368,7 @@ function hashPass(s) {
 const ADMIN_PASS = hashPass("Shazid@961");
 
 function applyAdminGate() {
+  document.body.classList.toggle("is-admin", state.admin);
   document.querySelectorAll(".admin-only").forEach(el => el.classList.toggle("admin-hidden", !state.admin));
   document.querySelectorAll(".admin-when-in").forEach(el => el.classList.toggle("admin-hidden", state.admin));
   const pill = $("#adminPill");
@@ -1178,15 +1408,16 @@ function bindAdminGate() {
    ============================================================ */
 async function init() {
   const live = await loadLiveJobs();      // live circulars, falls back to demo data
-  $("#alertMajor").textContent = state.profile.major;
+  $("#alertMajor").textContent = state.profile.major || "your qualification";
   renderForm();
+  renderLocations();
   renderFilters();
   renderCategories();
   renderResults();
   renderNotifs();
   bindEvents();
   renderSourceInfo();
-  renderCrawlerStatus();                    // proves the 6-hourly cron is alive
+  renderCrawlerStatus();                    // owner-only: proves the cron is alive
   applyAdminGate();                         // crawler panel is owner-only
   bindAdminGate();
   setInterval(renderCrawlerStatus, 5 * 60000);
@@ -1194,14 +1425,21 @@ async function init() {
   $("#alertSampleJob").innerHTML = first
     ? `<b>${esc(first.title)}</b> — ${esc(first.org)} · Deadline: ${fmtDate(first.deadline)}`
     : `<b>Computer Programmer</b> — DSHE · Deadline: 20 Oct 2026`;
-  $("#lastScan").textContent = "Last scan: just now";
+  $("#lastScan").textContent = "Updated just now";
   scanCountdown();
+
+  /* first-time visitors: show the profile form once so they know where it lives */
+  if (!profileReady() && !load("cm_profile_seen", false)) {
+    save("cm_profile_seen", true);
+    setTimeout(() => openProfile(), 700);
+  }
+
   if (live) {
     setTimeout(() => toast("🟢 Live circulars loaded",
-      `${state.jobs.length} open government jobs from ${state.meta.source}`), 500);
+      `${state.jobs.length} open government jobs are live right now.`), 500);
   } else {
-    setTimeout(() => toast("🟡 Offline demo mode",
-      "Could not fetch data/jobs.json — showing the bundled sample circulars."), 500);
+    setTimeout(() => toast("🟡 Offline mode",
+      "Could not fetch live circulars — showing the bundled sample circulars."), 500);
   }
 }
 document.addEventListener("DOMContentLoaded", init);

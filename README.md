@@ -9,6 +9,9 @@ A static, no-build job discovery site for Bangladesh government circulars. Fill 
 education profile once, press **🔎 Find Matching Government Jobs**, and every circular
 comes back marked ✅ Eligible / ⚠️ Check Requirements / ❌ Not Eligible — *with the reason why*.
 
+Nothing on the site assumes a particular degree: the profile starts empty and there is no
+default major, so it reads the same for a BBA, Civil, Medical, Law or CSE graduate.
+
 ▶ **Live site:** https://shazid41.github.io/chakrimatch-bd/
 
 ---
@@ -17,8 +20,9 @@ comes back marked ✅ Eligible / ⚠️ Check Requirements / ❌ Not Eligible �
 
 | Feature | How |
 |---|---|
-| Profile → one-click matching | Education, degree, CGPA, age, gender, location, skills, experience, job-type preferences stored in `localStorage` |
+| Profile → one-click matching | **My Profile** in the menu — education, degree, CGPA, age, gender, location, skills, experience, job-type preferences stored in `localStorage`. Until it is filled in, results show a 📝 *Set up profile* badge instead of a verdict nobody can trust |
 | **Government bank jobs first** | Bangladesh Bank eRecruitment vacancies get their own 🏦 strip at the very top of the results |
+| Location search | Pick a division/district in the search bar, or just type `ঢাকায় চাকরি` / `Rangpur` — circulars that actually name the place float to the top, with an honest count of how many do (and a plain note when the whole list is nationwide) |
 | "Why am I eligible?" | Every job expands into a check-by-check explanation (degree, education level, CGPA, age, gender, experience, location, grade, job type) with a plain verdict |
 | Natural-language search | Bangla **and** English — degree, **job type** (`ব্যাংক`, `মন্ত্রণালয়`, `bcs`), **minimum level** (`মাস্টার্স`, `ডিপ্লোমা`), age, relocation, grade, **sort order** (`recent`, `ending soon`), keywords |
 | Sorting & paging | Most recent first (default) / ending soonest / best match, and the list is paginated 10 per page with Prev · Next |
@@ -26,6 +30,8 @@ comes back marked ✅ Eligible / ⚠️ Check Requirements / ❌ Not Eligible �
 | Live circulars | `data/jobs.json` is rebuilt from two official sources every 6 hours by GitHub Actions |
 | New Job Alerts | In-site notification bell + toasts; site / e-mail / Telegram preference toggles |
 | Deadline countdowns | "3 days left", colour-coded when a circular is closing |
+| Job sources directory | ⭐ 40 hand-picked apply links in5 groups — সরকারি, প্রাইভেট ও CSE/IT, ব্যাংক ও আর্থিক, শিক্ষকতা/শিক্ষা, NGO/Development |
+| Works on any screen | Verified with zero horizontal overflow at 320 / 360 / 420 / 600 / 800 / 1000 / 1200px — collapsible filter drawer, stacking job cards, wrapping verdict chips, full-screen sheet and bottom-sheet modal on phones |
 | Safe by design | **Apply** only opens the official application website — this site never submits anything |
 
 ## Data sources & honesty notes
@@ -81,14 +87,27 @@ happens.
 
 ## Admin panel (site owner only)
 
-The *Run crawler now* button, the next-scan countdown and the ⚙️ *Crawler status* panel are
-hidden from visitors. Signing in at the bottom of *How It Works* with the owner account
-reveals them:
+The pipeline controls, the next-scan countdown and the ⚙️ *Crawler status* panel are hidden
+from visitors — no data-source or crawler wording appears anywhere in the public interface.
+Signing in through the 🔐 *Site owner sign-in* link at the very bottom of the page with the
+owner account reveals them, and the 🔄 *Refresh* button then runs the pipeline instead of
+simply reloading the live data for everyone else:
 
 > **Honest limitation:** this is a static site with no server, so there is nothing to check
 > a password against. The gate is a UI lock that keeps the interface simple — it is **not**
 > real security, and anyone with DevTools can read the source. Do not store anything secret
 > here.
+
+## The page, top to bottom
+
+Header (logo · **My Profile** · Find Jobs · Categories · Job Sources · Alerts) → hero with
+live counters → search bar with the location selector → **1️⃣ Results** (🏦 bank strip,
+verdict chips, sort, collapsible filters, 10-per-page list) → **2️⃣ Categories** →
+**3️⃣ Job Sources** → **4️⃣ Alerts** → footer.
+
+The profile is a sheet opened from the menu (or the hero CTA) rather than a block on the
+home page, so the landing screen stays a job list. Only 🔐 *Site owner sign-in* and its
+panel are special-cased and hidden until an admin signs in.
 
 ## Project layout
 
@@ -136,11 +155,11 @@ GitHub Pages redeploys — so the live site keeps itself current with no server 
 
 Four places to check — the first two need no login:
 
-1. **On the site itself** — the 🟢 line next to the results shows how many organisations,
-   bank posts and circulars are loaded and when the data last changed. Sign in as the site
-   owner and the ⚙️ *Crawler status* panel appears under *How It Works*, reading GitHub's
-   public Actions API live: when the last crawl ran, whether it succeeded, and a link
-   straight to that run's log.
+1. **On the site itself** — the line above the results shows how many circulars and bank
+   vacancies are open and when the data last changed (visitors just see *"updated X ago"*).
+   Sign in as the site owner and the ⚙️ *Crawler status* panel appears at the bottom of the
+   page, reading GitHub's public Actions API live: when the last crawl ran, whether it
+   succeeded, and a link straight to that run's log.
 2. **Actions tab** — <https://github.com/Shazid41/chakrimatch-bd/actions> lists every run.
    `schedule` = it fired on its own (cron), `workflow_dispatch` = someone clicked *Run
    workflow*. Green ✅ = fine, red ❌ = failed (GitHub also e-mails you about failures).
