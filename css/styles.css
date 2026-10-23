@@ -703,6 +703,9 @@ body{-webkit-tap-highlight-color:transparent}
 .pg-info{margin-left:8px;font-size:12.5px;color:var(--ink-3,#7a8494)}
 
 /* ---------- admin gate ---------- */
+/* hidden by CSS from first paint — JS only flips the body class, so no
+   data-source or crawler line can flash on screen before it runs */
+body:not(.is-admin) .admin-only{display:none !important}
 body:not(.is-admin) #pipeline{display:none !important}
 .admin-only.admin-hidden{display:none !important}
 .admin-login{margin:12px 0 4px;padding:12px 14px;border:1px dashed #D6DEE9;background:#FBFCFE}
