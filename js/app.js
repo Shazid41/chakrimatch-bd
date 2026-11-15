@@ -605,6 +605,20 @@ function jobCardHTML(job, ev) {
   </article>`;
 }
 
+/* Shown when no government bank vacancy can be found at all. The bank strip is
+   the headline feature, so it stays on the page with an honest message and a
+   link to the official portal instead of silently disappearing. */
+function bankEmptyHTML() {
+  return `<div class="bank-empty">
+    <p class="bank-empty-title">সরকারি ব্যাংকের কোনো খালি পদ পাওয়া যায়নি</p>
+    <p class="bank-empty-sub">No government bank vacancies could be found at the moment.
+      Bangladesh Bank publishes new circulars on its own recruitment site — always
+      verify there before applying.</p>
+    <a class="btn btn-outline" href="https://erecruitment.bb.org.bd/onlineapp/joblist.php"
+       target="_blank" rel="noopener">🏦 Official bank job list ↗</a>
+  </div>`;
+}
+
 function renderResults() {
   const ready = profileReady();
   if (!ready && ["eligible", "check", "not"].includes(state.status)) state.status = "all";
@@ -635,10 +649,14 @@ function renderResults() {
   const strip = $("#bankStrip");
   if (strip) {
     if (!bankRows.length) {
-      strip.hidden = true;
       /* only empty the children — wiping #bankStrip itself would destroy them */
       const bl = $("#bankList"); if (bl) bl.innerHTML = "";
       const bm = $("#bankMore"); if (bm) bm.innerHTML = "";
+      /* Nothing open anywhere → keep the section and say so. The visitor's own
+         search/filters merely hid them → drop the strip as before. */
+      const anyBank = state.jobs.some(j => j.isBank);
+      strip.hidden = anyBank;
+      if (!anyBank && bl) bl.innerHTML = bankEmptyHTML();
     } else {
       strip.hidden = false;
       const shown = state.showAllBanks ? bankRows : bankRows.slice(0, 4);
